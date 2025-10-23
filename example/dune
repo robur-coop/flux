@@ -1,0 +1,11 @@
+(executable
+ (name infinite)
+ (libraries miou.unix flux))
+
+(executable
+ (name consume)
+ (libraries miou.unix flux))
+
+(executable
+ (name random)
+ (libraries miou.unix flux))

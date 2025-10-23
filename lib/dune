@@ -1,0 +1,8 @@
+(library
+ (name flux)
+ (public_name flux)
+ (libraries logs miou))
+
+(documentation
+ (package flux)
+ (mld_files tutorial))

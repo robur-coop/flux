@@ -1,0 +1,7 @@
+_opam
+_build
+_tests
+_b0
+_coverage
+*.install
+book/book

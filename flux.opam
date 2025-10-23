@@ -1,0 +1,24 @@
+opam-version: "2.0"
+name:         "flux"
+maintainer:   "Romain Calascibetta <romain.calascibetta@gmail.com>"
+authors:
+  [ "Romain Calascibetta <romain.calascibetta@gmail.com>"
+    "Rizo I <rizo@odis.io>" ]
+homepage:     "https://github.com/robur-coop/flux"
+bug-reports:  "https://github.com/robur-coop/flux/issues"
+dev-repo:     "git+https://github.com/robur-coop/flux.git"
+doc:          "https://docs.osau.re/miou/"
+license:      "MIT"
+synopsis:     "Composable streaming abstractions with Miou"
+
+build: [ "dune" "build" "-p" name "-j" jobs ]
+run-test: [ "dune" "runtest" "-p" name "-j" jobs ]
+
+depends: [
+  "ocaml"             {>= "5.0.0"}
+  "dune"              {>= "2.8.0"}
+  "miou"              {>= "0.5.0"}
+  "logs"
+  "ocamlformat"       {with-dev-setup & = "0.27.0"}
+]
+x-maintenance-intent: [ "(latest)" ]
