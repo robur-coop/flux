@@ -1,3 +1,5 @@
+let failwith fmt = Format.kasprintf failwith fmt
+
 let sha256sum =
   let open Digestif in
   let init = Fun.const SHA256.empty
@@ -18,8 +20,8 @@ let () =
     | [| _; filename |] when is_regular filename ->
         (Flux.Source.file ~filename 0x7ff, filename)
     | [| _ |] -> (Flux.Source.in_channel stdin, "-")
-    | _ -> Fmt.failwith "%s [<filename>]" Sys.executable_name
+    | _ -> failwith "%s [<filename>]" Sys.executable_name
   in
   let hash, leftover = Flux.Stream.run ~from ~via ~into in
   Option.iter Flux.Source.dispose leftover;
-  Fmt.pr "%a  %s\n%!" Digestif.SHA256.pp hash filename
+  Format.printf "%a  %s\n%!" Digestif.SHA256.pp hash filename

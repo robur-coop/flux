@@ -1,6 +1,6 @@
 let n = ref 10
 let filename = ref None
-let usage = Fmt.str "%s [-n <NUM>] [FILE]" Sys.executable_name
+let usage = Format.asprintf "%s [-n <NUM>] [FILE]" Sys.executable_name
 
 let is_regular filename =
   Sys.file_exists filename && not (Sys.is_directory filename)

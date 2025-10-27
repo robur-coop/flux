@@ -24,28 +24,15 @@
 
 (executable
  (name sha256sum)
- (libraries fmt digestif miou.unix flux))
+ (libraries digestif miou.unix flux))
 
 (executable
  (name head)
- (libraries fmt miou.unix flux))
+ (libraries miou.unix flux))
 
 (executable
  (name repeat)
  (libraries miou.unix flux))
-
-(executable
- (name search)
- (libraries
-  stem.tokenizer
-  stem.stopwords
-  opam-file-format
-  mirage-crypto-rng-miou-unix
-  httpcats
-  fmt
-  miou.unix
-  fluxt.tar
-  fluxt.gz))
 
 (executable
  (name fetch)
@@ -56,3 +43,8 @@
   miou.unix
   progress
   flux))
+
+(rule
+  (alias fetch)
+  (deps (:fetch fetch.exe))
+  (action (run %{fetch} -o index.tar.gz https://opam.ocaml.org)))

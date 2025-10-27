@@ -754,3 +754,28 @@ with {i let-binding}, as Miou's structured concurrency paradigm does not apply
 well in a chain of [and+].
 
 {3 Flux, Miou and awaiting state.}
+
+One final note is necessary regarding the {i awaiting state} that can be
+induced by [Miou.Computation.await_exn] and the actual execution of the
+{!type:Flux.sink}s.
+
+We could modify our [progress] function to directly attempt to obtain the size
+of the document we want to download. However, this implies that the creation of
+our [progress] {!type:Flux.sink} depends on our [length] variable, which is
+only filled once the source begins to emit.
+
+It has been mentioned that when you use {!val:Flux.Source.with_task}, the code
+that must be executed by the task is only executed during
+{!val:Flux.Stream.run} (and not before). The problem is that
+{!val:Flux.Stream.run} needs the value [into], which comes from the composition
+of our two sinks, but one of which, [progress], should only be created if and
+only if the [length] variable is filled.
+
+So, if we wanted to create our [progress] {!type:Flux.sink} based on the
+[length] variable, we would end up with {i a deadlock} because [length] would
+never be filled since the {!type:Flux.source} would never be consumed because
+the [into] value does not exist {i yet}.
+
+This is why we perform our [Miou.Computation.await_exn] during the actual
+execution (in the [fn] function used by {!val:Flux.Sink.fold}) of our
+{!type:Flux.sink} [progress] (and not before).
