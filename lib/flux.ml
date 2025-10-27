@@ -4,9 +4,6 @@
    Copyright (c) 2024 Romain Calascibetta <romain.calascibetta@gmail.com>
 *)
 
-let src = Logs.Src.create "flux"
-
-module Log = (val Logs.src_log src : Logs.LOG)
 module Bqueue = Bqueue
 
 external reraise : exn -> 'a = "%reraise"
@@ -205,13 +202,10 @@ module Sink = struct
     Sink { init; push; full; stop }
 
   let list =
-    let init () = [] in
-    let push acc x =
-      Log.debug (fun m -> m "Sink.list: new element");
-      x :: acc
-    in
-    let full _ = false in
-    let stop acc = List.rev acc in
+    let init () = []
+    and push acc x = x :: acc
+    and full _ = false
+    and stop acc = List.rev acc in
     Sink { init; push; full; stop }
 
   let seq init =
@@ -272,11 +266,7 @@ module Sink = struct
       | Some (Some prm), _ -> (
           match (Miou.await prm, exn) with
           | Ok x, _ -> terminate ?exn (merge x acc, orphans)
-          | Error exn, None ->
-              Log.err (fun m ->
-                  m "Sink.each: a task terminated abnormally: %s"
-                    (Printexc.to_string exn));
-              terminate ~exn (acc, orphans)
+          | Error exn, None -> terminate ~exn (acc, orphans)
           | Error _, _ -> terminate ?exn (acc, orphans))
     in
     let rec clean (acc, orphans) =
@@ -285,11 +275,7 @@ module Sink = struct
       | Some (Some prm) -> (
           match Miou.await prm with
           | Ok x -> clean (merge x acc, orphans)
-          | Error exn ->
-              Log.err (fun m ->
-                  m "Sink.each: a task terminated abnormally: %s"
-                    (Printexc.to_string exn));
-              terminate ~exn (acc, orphans))
+          | Error exn -> terminate ~exn (acc, orphans))
     in
     let init () = Ok (init, Miou.orphans ()) in
     let push value x =
@@ -426,6 +412,13 @@ module Sink = struct
           sub.stop (sub.init ())
       | Flat_map_sub sub -> sub.stop sub.init
     in
+    Sink { init; push; full; stop }
+
+  let full =
+    let init () = ()
+    and push () _ = invalid_arg "Flux.Sink.full: push to full sink"
+    and full () = true
+    and stop () = () in
     Sink { init; push; full; stop }
 
   module Syntax = struct
@@ -659,8 +652,6 @@ module Stream = struct
           s0' := Some s0;
           go r0 s0
         with exn ->
-          Log.err (fun m ->
-              m "Stream.from: catch an exception: %s" (Printexc.to_string exn));
           Option.iter src.stop !s0';
           let _ = k.stop r0 in
           reraise exn

@@ -2,7 +2,7 @@
  (name flux)
  (modules flux bqueue)
  (public_name flux)
- (libraries logs miou))
+ (libraries miou))
 
 (library
  (name flux_gz)

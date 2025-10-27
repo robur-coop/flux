@@ -740,6 +740,17 @@ results:
 
 There you go! If you test this program, you will see a download bar!
 
-{image:https://raw.githubusercontent.com/robur-coop/flux/refs/heads/main/asserts/fetch.gif}
+{image:https://raw.githubusercontent.com/robur-coop/flux/refs/heads/main/assets/fetch.gif}
+
+The most attentive user of Miou and this tutorial might imagine that the actual
+application of saving the response in a file and displaying the download bar
+could be done {b in parallel}. And they would be right!
+
+The operator {!val:Flux.Sink.Syntax.and+} corresponds to the
+{!val:Flux.Sink.zip} function, but there is also the {!val:Flux.Sink.both}
+function, which executes sinks in tasks that run in parallel (via [Miou.call]).
+However, we would like to warn users that {!val:Flux.Sink.both} cannot be used
+with {i let-binding}, as Miou's structured concurrency paradigm does not apply
+well in a chain of [and+].
 
 {3 Flux, Miou and awaiting state.}

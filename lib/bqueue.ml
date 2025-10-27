@@ -1,7 +1,3 @@
-let src = Logs.Src.create "flux.bqueue"
-
-module Log = (val Logs.src_log src : Logs.LOG)
-
 type infinite = |
 type with_close = |
 type with_close_and_halt = |

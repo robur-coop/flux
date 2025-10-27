@@ -213,6 +213,14 @@ module Sink : sig
   (** [fill x] uses [x] to fill the sink. This sink will not consume any input
       and will immediately produce [x] when used. *)
 
+  val full : ('a, unit) sink
+  (** A full sink taht will not consume any input and will not produce any
+      results. *)
+
+  val drain : ('a, unit) sink
+  (** Consumes all elements producing nothing. Useful for triggering actions in
+      effectful streams. *)
+
   val zip : ('a, 'r0) sink -> ('a, 'r1) sink -> ('a, 'r0 * 'r1) sink
   (** [zip l r] computes both [l] and [r] cooperatively with the same input
       being sent to both sinks. The results of both sinks are produced. *)
