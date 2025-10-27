@@ -95,7 +95,7 @@ module Source = struct
 
   type 'a task = ('a, 'a option) Bqueue.t -> unit
 
-  let with_task ?(halt = false) ~size fn =
+  let with_task ?(parallel = false) ?(halt = false) ~size fn =
     let bqueue =
       match halt with
       | true -> Bqueue.(create with_close_and_halt size)
@@ -105,8 +105,10 @@ module Source = struct
       let finally = if halt then Bqueue.halt else Bqueue.close in
       let res = Miou.Ownership.create ~finally bqueue in
       Miou.Ownership.own res;
-      Miou.async ~give:[ res ] @@ fun () ->
-      fn bqueue; Miou.Ownership.release res
+      let spawn ~give fn =
+        if parallel then Miou.call ~give fn else Miou.async ~give fn
+      in
+      spawn ~give:[ res ] @@ fun () -> fn bqueue; Miou.Ownership.release res
     and pull prm = Option.map (fun a -> (a, prm)) (Bqueue.get bqueue)
     (* NOTE(dinosaure): A task that has completed successfully can be cancelled.
        The idea behind using [Miou.cancel] rather than [Miou.await_exn] is that
@@ -139,6 +141,17 @@ module Source = struct
     in
     Source { init; stop; pull }
 
+  let in_channel ?(close = true) ic =
+    let init () = (Bytes.create 0x7ff, ic)
+    and stop (_buf, ic) = if ic != stdin && close then close_in ic
+    and pull ((buf, ic) as state) =
+      try
+        let len = Stdlib.input ic buf 0 (Bytes.length buf) in
+        if len = 0 then None else Some (Bytes.sub_string buf 0 len, state)
+      with End_of_file -> None
+    in
+    Source { init; stop; pull }
+
   let next (Source src) =
     let s0 = src.init () in
     try
@@ -163,6 +176,25 @@ module Sink = struct
     and push _ = Fun.const ()
     and full = Fun.const true
     and stop = Fun.const x in
+    Sink { init; push; full; stop }
+
+  let fold push init =
+    let init = Fun.const init and full = Fun.const false and stop = Fun.id in
+    Sink { init; push; full; stop }
+
+  let array =
+    let init () = ([], 0)
+    and push (acc, len) x = (x :: acc, len + 1)
+    and full _ = false
+    and stop (acc, len) =
+      match acc with
+      | [] -> [||]
+      | [ x ] -> [| x |]
+      | x :: r ->
+          let arr = Array.make len x in
+          let fn idx x = arr.(len - idx - 2) <- x in
+          List.iteri fn r; arr
+    in
     Sink { init; push; full; stop }
 
   let string =
@@ -200,7 +232,7 @@ module Sink = struct
       and stop len = Array.init len (fun idx -> Option.get buf.(idx)) in
       Sink { init; push; full; stop }
 
-  let file filename =
+  let file ~filename =
     let init () = lazy (Stdlib.open_out_bin filename) in
     let stop oc = if Lazy.is_val oc then close_out (Lazy.force oc) in
     let push oc str =
@@ -210,6 +242,16 @@ module Sink = struct
       oc
     in
     let full _ = false in
+    Sink { init; stop; full; push }
+
+  let out_channel ?(close = true) oc =
+    let init () = oc
+    and stop oc = if oc != stdout && close then close_out oc
+    and push oc str =
+      Stdlib.output_string oc str;
+      Stdlib.flush oc;
+      oc
+    and full _ = false in
     Sink { init; stop; full; push }
 
   let drain =
@@ -293,12 +335,10 @@ module Sink = struct
       let lprm = Miou.call (fn (l, lq)) in
       let rprm = Miou.call (fn (r, rq)) in
       (is_full, lq, lprm, rq, rprm)
-    in
-    let push ((_, lq, _, rq, _) as state) x =
+    and push ((_, lq, _, rq, _) as state) x =
       Bqueue.put lq x; Bqueue.put rq x; state
-    in
-    let full (is_full, _, _, _, _) = Atomic.get is_full in
-    let stop (_, lq, lprm, rq, rprm) =
+    and full (is_full, _, _, _, _) = Atomic.get is_full
+    and stop (_, lq, lprm, rq, rprm) =
       Bqueue.close lq;
       Bqueue.close rq;
       let lres = Miou.await_exn lprm in
@@ -339,6 +379,13 @@ module Sink = struct
     Sink { init; push; full; stop }
 
   let map fn (Sink k) = Sink { k with stop= (fun x -> fn (k.stop x)) }
+
+  let premap fn (Sink k) =
+    Sink { k with push= (fun acc x -> k.push acc (fn x)) }
+
+  let length =
+    let init _ = 0 and push acc _ = acc + 1 and full _ = false and stop x = x in
+    Sink { init; push; full; stop }
 
   type ('top, 'a, 'b) flat_map =
     | Flat_map_top : 'top -> ('top, 'a, 'b) flat_map
@@ -401,6 +448,30 @@ end
 
 type ('a, 'b) flow = { flow: 'r. ('b, 'r) sink -> ('a, 'r) sink } [@@unboxed]
 
+type bstr =
+  (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t
+
+module Unsafe = struct
+  external bset_uint8 : bstr -> int -> int -> unit = "%caml_ba_set_1"
+  external bset_uint32 : bstr -> int -> int32 -> unit = "%caml_bigstring_set32"
+  external sget_uint32 : string -> int -> int32 = "%caml_string_get32"
+  external sget_uint8 : string -> int -> int = "%string_unsafe_get"
+
+  let blit_from_string src ~src_off dst ~dst_off ~len =
+    let len0 = len land 3 in
+    let len1 = len asr 2 in
+    for i = 0 to len1 - 1 do
+      let i = i * 4 in
+      let v = sget_uint32 src (src_off + i) in
+      bset_uint32 dst (dst_off + i) v
+    done;
+    for i = 0 to len0 - 1 do
+      let i = (len1 * 4) + i in
+      let v = sget_uint8 src (src_off + i) in
+      bset_uint8 dst (dst_off + i) v
+    done
+end
+
 module Flow = struct
   let identity = { flow= Fun.id }
   let compose { flow= f } { flow= g } = { flow= (fun sink -> f (g sink)) }
@@ -411,6 +482,71 @@ module Flow = struct
     let flow (Sink k) =
       let push r x = fn x; k.push r x in
       Sink { k with push }
+    in
+    { flow }
+
+  let bstr ~len =
+    let open Bigarray in
+    let flow (Sink k) =
+      let init () =
+        let bstr = Array1.create char c_layout len in
+        (k.init (), bstr, 0)
+      and push (acc, bstr, dst_off) str =
+        let rec go acc src_off dst_off =
+          if src_off = String.length str then (acc, bstr, dst_off)
+          else
+            let rem_bstr = Array1.dim bstr - dst_off
+            and rem_str = String.length str - src_off in
+            let len = Int.min rem_bstr rem_str in
+            Unsafe.blit_from_string str ~src_off bstr ~dst_off ~len;
+            if dst_off + len = Array1.dim bstr then
+              let acc = k.push acc bstr in
+              if k.full acc then (acc, bstr, 0) else go acc (src_off + len) 0
+            else (acc, bstr, dst_off + len)
+        in
+        go acc 0 dst_off
+      and full (acc, _, _) = k.full acc
+      and stop (acc, bstr, dst_off) =
+        if dst_off > 0 && not (k.full acc) then
+          let bstr = Array1.sub bstr 0 dst_off in
+          k.stop (k.push acc bstr)
+        else k.stop acc
+      in
+      Sink { init; push; full; stop }
+    in
+    { flow }
+
+  let split_on_char chr =
+    let flow (Sink k) =
+      let init () = (Buffer.create 0x7ff, k.init ()) in
+      let push (buf, acc) str =
+        match String.split_on_char chr str with
+        | [] -> assert false
+        | [ x ] -> Buffer.add_string buf x; (buf, acc)
+        | [ x; y ] ->
+            Buffer.add_string buf x;
+            let acc = k.push acc (Buffer.contents buf) in
+            Buffer.clear buf; Buffer.add_string buf y; (buf, acc)
+        | x :: rest ->
+            Buffer.add_string buf x;
+            let acc = k.push acc (Buffer.contents buf) in
+            Buffer.clear buf;
+            let rec go acc = function
+              | [] -> (buf, acc)
+              | [ x ] -> Buffer.add_string buf x; (buf, acc)
+              | x :: r when not (k.full acc) -> go (k.push acc x) r
+              | _ -> (buf, acc)
+            in
+            go acc rest
+      in
+      let full (_, acc) = k.full acc in
+      let stop (buf, acc) =
+        if Buffer.length buf > 0 && not (k.full acc) then
+          let acc = k.push acc (Buffer.contents buf) in
+          k.stop acc
+        else k.stop acc
+      in
+      Sink { init; push; full; stop }
     in
     { flow }
 
@@ -533,11 +669,25 @@ module Stream = struct
 
   let map fn t = via (Flow.map fn) t
   let filter fn t = via (Flow.filter fn) t
-  let file filename = into (Sink.file filename)
+  let file ~filename = into (Sink.file ~filename)
   let drain t = into Sink.drain t
+
+  let empty =
+    let stream (Sink k) = k.stop (k.init ()) in
+    { stream }
 
   let each ?parallel fn t =
     into (Sink.each ?parallel ~init:() ~merge:Fun.const fn) t
+
+  let range ?by:(step = 1) n m =
+    if n > m then invalid_arg "Flux.Stream.range: invalid range";
+    let stream (Sink k) =
+      let rec go i r =
+        if k.full r then r else if i >= m then r else go (i + step) (k.push r i)
+      in
+      k.stop (go n (k.init ()))
+    in
+    { stream }
 
   let interpose sep t =
     let stream (Sink k) =
@@ -555,13 +705,27 @@ module Stream = struct
     in
     { stream }
 
-  let _bracket : init:(unit -> 's) -> stop:('s -> 'r) -> ('s -> 's) -> 'r =
+  let bracket : init:(unit -> 's) -> stop:('s -> 'r) -> ('s -> 's) -> 'r =
    fun ~init ~stop fn ->
     let acc = init () in
     try stop (fn acc)
     with exn ->
       ignore (stop acc);
       reraise exn
+
+  let repeat ?times:n x =
+    let stream (Sink k) =
+      match n with
+      | None ->
+          let rec go r = if k.full r then r else go (k.push r x) in
+          bracket go ~init:k.init ~stop:k.stop
+      | Some n ->
+          let rec go i r =
+            if k.full r || i = n then r else go (succ i) (k.push r x)
+          in
+          bracket (go 0) ~init:k.init ~stop:k.stop
+    in
+    { stream }
 
   let flat_map fn t =
     let stream (Sink k) =

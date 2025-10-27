@@ -9,3 +9,50 @@
 (executable
  (name random)
  (libraries miou.unix flux))
+
+(executable
+ (name error)
+ (libraries miou.unix flux))
+
+(executable
+ (name zpipe)
+ (libraries bstr miou.unix flux fluxt.zl))
+
+(executable
+ (name gunzip)
+ (libraries miou.unix flux fluxt.gz))
+
+(executable
+ (name sha256sum)
+ (libraries fmt digestif miou.unix flux))
+
+(executable
+ (name head)
+ (libraries fmt miou.unix flux))
+
+(executable
+ (name repeat)
+ (libraries miou.unix flux))
+
+(executable
+ (name search)
+ (libraries
+  stem.tokenizer
+  stem.stopwords
+  opam-file-format
+  mirage-crypto-rng-miou-unix
+  httpcats
+  fmt
+  miou.unix
+  fluxt.tar
+  fluxt.gz))
+
+(executable
+ (name fetch)
+ (libraries
+  httpcats
+  mirage-crypto-rng-miou-unix
+  fmt
+  miou.unix
+  progress
+  flux))

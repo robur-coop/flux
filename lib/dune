@@ -1,8 +1,33 @@
 (library
  (name flux)
+ (modules flux bqueue)
  (public_name flux)
  (libraries logs miou))
 
+(library
+ (name flux_gz)
+ (modules flux_gz)
+ (public_name fluxt.gz)
+ (libraries bstr decompress.gz flux))
+
+(library
+ (name flux_zl)
+ (modules flux_zl)
+ (public_name fluxt.zl)
+ (libraries bstr decompress.zl flux))
+
+(library
+ (name flux_tar)
+ (modules flux_tar)
+ (public_name fluxt.tar)
+ (libraries tar flux))
+
+(library
+ (name flux_hash)
+ (modules flux_hash)
+ (public_name fluxt.hash)
+ (libraries digestif flux))
+
 (documentation
  (package flux)
- (mld_files tutorial))
+ (mld_files flux))

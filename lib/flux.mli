@@ -1,6 +1,6 @@
 (** Flux is a library that provides an interface for manipulating streams with
     the Miou scheduler. We strongly recommend that you familiarise yourself with
-    Miou and read our tutorial. *)
+    Miou and read our {{!page:flux} tutorial}. *)
 
 module Bqueue = Bqueue
 
@@ -65,38 +65,6 @@ module Source : sig
   val queue : 'a Queue.t -> 'a source
   (** [queue q] is a source with all elements from the [q] queue. *)
 
-  val resource : finally:('r -> unit) -> ('r -> 'a option) -> 'r -> 'a source
-  (** [resource ~finally pull value] creates a new resource from a [pull]
-      function and an initial value. [resource] uses Miou's ownership mechanism
-      so that if the task consuming the resource is cancelled, the resource is
-      properly released (and [finally] is executed).
-
-      This also {b requires} the user to {!val:dispose} the source at the end of
-      the task, otherwise Miou's rules will be violated.
-
-      {b NOTE}: The resource passed to the [pull] function is {b physically} the
-      same as [init]. *)
-
-  type 'a task = ('a, 'a option) Bqueue.t -> unit
-  (** Type of tasks which should fill a given bounded-queue. *)
-
-  val with_task : ?halt:bool -> size:int -> 'a task -> 'a source
-  (** [with_task ?halt size producer] returns a source that is linked to a task
-      [producer] producing elements of type ['a]. The transfer of elements
-      between the task and the source consumer is limited in memory by [size]
-      elements at a time.
-
-      The source is not effective and may potentially block if the shared queue
-      is empty and an attempt is made to consume it (via {!val:next}, for
-      example). The shared queue is automatically closed/halted (depending on
-      [?halt], defaults to [false]) as soon as the producer terminates.
-
-      For more details on the difference between [halt] and [close], please
-      refer to the {!module:Bqueue} module. *)
-
-  val with_formatter :
-    ?halt:bool -> size:int -> (Format.formatter -> unit) -> string source
-
   val bqueue :
     ?stop:[ `Ignore | `Halt | `Close ] -> ('a, 'a option) Bqueue.t -> 'a source
   (** [bqueue ?stop q] is a source with all iterms from the [q] bounded-queue.
@@ -110,13 +78,22 @@ module Source : sig
       also closes the given bounded-queue. *)
 
   val map : ('a -> 'b) -> 'a source -> 'b source
+  (** A source with all elements transformed with a mapping function. *)
 
   val each : ('a -> unit) -> 'a source -> unit
   (** [each fn src] applies an effectful function [fn] to all elements in [src].
   *)
 
   val file : filename:string -> int -> string source
-  (** [file ~filename len] *)
+  (** [file ~filename len] reads at most [len] bytes of the file [filename]
+      until the end. *)
+
+  val in_channel : ?close:bool -> in_channel -> string source
+  (** [in_channel ic] reads strings from the given {!type:in_channel} [ic]. If
+      the given [ic] is not {!val:stdin} and [?close] is [true] (by default),
+      {!val:dispose} closes it properly. *)
+
+  (** {2 Consuming a source.} *)
 
   val next : 'a source -> ('a * 'a source) option
   (** [next src] is [Some (x, rest)] where [x] is the first element of [src] and
@@ -135,6 +112,44 @@ module Source : sig
 
       {b NOTE}: If the source is not already initialized, calling this function
       will first initialize its state before it is terminated. *)
+
+  (** {2 Miou related functions.} *)
+
+  val resource : finally:('r -> unit) -> ('r -> 'a option) -> 'r -> 'a source
+  (** [resource ~finally pull value] creates a new resource from a [pull]
+      function and an initial value. [resource] uses Miou's ownership mechanism
+      so that if the task consuming the resource is cancelled, the resource is
+      properly released (and [finally] is executed).
+
+      This also {b requires} the user to {!val:dispose} the source at the end of
+      the task, otherwise Miou's rules will be violated.
+
+      {b NOTE}: The resource passed to the [pull] function is {b physically} the
+      same as [init]. *)
+
+  type 'a task = ('a, 'a option) Bqueue.t -> unit
+  (** Type of tasks which should fill a given bounded-queue. *)
+
+  val with_task :
+    ?parallel:bool -> ?halt:bool -> size:int -> 'a task -> 'a source
+  (** [with_task ?halt ~size producer] returns a source that is linked to a task
+      [producer] producing elements of type ['a]. The transfer of elements
+      between the task and the source consumer is limited in memory by [size]
+      elements at a time.
+
+      The source is not effective and may potentially block if the shared queue
+      is empty and an attempt is made to consume it (via {!val:next}, for
+      example). The shared queue is automatically closed/halted (depending on
+      [?halt], defaults to [false]) as soon as the producer terminates.
+
+      For more details on the difference between [halt] and [close], please
+      refer to the {!module:Bqueue} module. *)
+
+  val with_formatter :
+    ?halt:bool -> size:int -> (Format.formatter -> unit) -> string source
+  (** [with_formatter ?halt ~size producer] is a specialisation of
+      {!val:with_task} with a [Format.formatter]. Everything written in the
+      formatter is transmitted to the consumer. *)
 end
 
 (** {1:sinks Sinks.}
@@ -185,8 +200,14 @@ module Sink : sig
   val seq : 'a Seq.t -> ('a, 'a Seq.t) sink
   (** [seq s] puts all input elements into the given [s]. *)
 
+  val array : ('a, 'a array) sink
+  (** Puts all input elements into an array. *)
+
   val buffer : int -> ('a, 'a array) sink
   (** Similar to {!val:array} but will only consume [n] elements. *)
+
+  val length : ('a, int) sink
+  (** Consumes and counts all input elements. *)
 
   val fill : 'r -> ('a, 'r) sink
   (** [fill x] uses [x] to fill the sink. This sink will not consume any input
@@ -198,7 +219,10 @@ module Sink : sig
 
   val both : ('a, 'r0) sink -> ('a, 'r1) sink -> ('a, 'r0 * 'r1) sink
   (** [both l r] computes both [l] and [r] {b in parallel} with the same input
-      being sent to both sinks. The results of both sinks are produced. *)
+      being sent to both sinks. The results of both sinks are produced.
+
+      {b NOTE}: Please note that this function does not comply with Miou's rules
+      if you attempt to use it in the form of a {i let-binding} [and+]. *)
 
   val unzip : ('a, 'r0) sink -> ('b, 'r1) sink -> ('a * 'b, 'r0 * 'r1) sink
   (** [unzip l r] is a sink that receives pairs ['a * 'b], sending the first
@@ -229,7 +253,20 @@ module Sink : sig
       these actions terminates abnormally, the execution of the returned
       {i sink} raises an exception. *)
 
-  val file : string -> (string, unit) sink
+  val file : filename:string -> (string, unit) sink
+  (** [file ~filename] saves string elements into the given file [filename]. *)
+
+  val out_channel : ?close:bool -> out_channel -> (string, unit) sink
+  (** [out_channel ?close oc] saves string elements into the given out channel
+      [oc]. If [oc] is not {!val:stdout} and [?close] is [true] (by default),
+      [out_channel] will close it at the end. *)
+
+  val fold : ('r -> 'a -> 'r) -> 'r -> ('a, 'r) sink
+  (** [fold fn init] is a sink that reduces all input elements with the stepping
+      function [fn] starting with the accumulator value [init]. *)
+
+  val premap : ('b -> 'a) -> ('a, 'r) sink -> ('b, 'r) sink
+  (** [premap fn sink] is a sink that {e premaps} the input value. *)
 
   module Syntax : sig
     val ( let* ) : ('a, 'r0) sink -> ('r0 -> ('a, 'r1) sink) -> ('a, 'r1) sink
@@ -282,6 +319,9 @@ type ('a, 'b) flow = { flow: 'r. ('b, 'r) sink -> ('a, 'r) sink } [@@unboxed]
 (** Stream transformers that consume values of type ['a] and produce values of
     type ['b]. *)
 
+type bstr =
+  (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t
+
 module Flow : sig
   val identity : ('a, 'a) flow
   (** A neutral flow that does not change the elements. *)
@@ -291,6 +331,9 @@ module Flow : sig
 
   val filter : ('a -> bool) -> ('a, 'a) flow
   (** A flow that includes only elements that satisfy a predicate. *)
+
+  val map : ('a -> 'b) -> ('a, 'b) flow
+  (** A flow with all elements transformed with a mapping function. *)
 
   val compose : ('a, 'b) flow -> ('b, 'c) flow -> ('a, 'c) flow
   (** Compose two flows to form a new flow. *)
@@ -310,6 +353,19 @@ module Flow : sig
       other processes to run (in parallel and/or cooperatively) correctly (and
       surely ending in an [Out_of_memory] exception if we are in a restricted
       context). *)
+
+  val split_on_char : char -> (string, string) flow
+  (** [split_on_char sep] is a flow which emits (possibly empty) subtrings of
+      incoming elements that are delimited by the character [sep]. *)
+
+  val bstr : len:int -> (string, bstr) flow
+  (** [bstr ~len] allocates a bigarray of [len] bytes and copies the incoming
+      strings into this bigarray. Once it is full, it is transferred to the next
+      consumer.
+
+      {b NOTE}: the consumer must immediately consume, in one way or another,
+      the given bigarray. [bstr] {b reuses} this same bigarray (and does not
+      allocate a new one) to refill it with the incoming strings. *)
 end
 
 (** {1:streams Streams.}
@@ -375,11 +431,12 @@ module Stream : sig
   val filter : ('a -> bool) -> 'a stream -> 'a stream
   (** A stream that includes only the elements that satisfy a predicate. *)
 
-  val file : string -> string stream -> unit
+  val file : filename:string -> string stream -> unit
   (** [file filename stream] writes bytes from [stream] into the file located at
       [filename]. *)
 
   val drain : 'a stream -> unit
+  (** Consume and discard all elements from the given stream. *)
 
   val interpose : 'a -> 'a stream -> 'a stream
   (** Inserts a separator element between each stream element. *)
@@ -387,4 +444,16 @@ module Stream : sig
   val each : ?parallel:bool -> ('a -> unit) -> 'a stream -> unit
   (** [each fn stream] applies an function [fn] to all elements of stream. Each
       function is performed cooperatively via the Miou scheduler. *)
+
+  val empty : 'a stream
+  (** Empty stream with no elements. *)
+
+  val range : ?by:int -> int -> int -> int stream
+  (** [range ~by:step n m] is a sequence of integers starting from [n] to [m]
+      (excluding [m]) incremented by [step]. The range is pen on the right side.
+  *)
+
+  val repeat : ?times:int -> 'a -> 'a stream
+  (** [repeat ~times:n x] produces a stream by repeating [x] [n] times. If [n]
+      is omitted, [x] is repeated {e ad infinitum}. *)
 end
