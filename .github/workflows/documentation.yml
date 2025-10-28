@@ -25,7 +25,7 @@ jobs:
           opam-local-packages: |
             *.opam
       - name: Install dependencies
-        run: opam install --deps-only -t flux,fluxt,odoc
+        run: opam install --deps-only -t flux fluxt odoc
       - name: Build documentation
         run: opam exec -- dune build @doc-new -p flux
       - name: Deploy documentation
