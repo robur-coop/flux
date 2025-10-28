@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml"><head><title>flux (docs.local.flux.flux)</title><meta charset="utf-8"/><link rel="stylesheet" href="../../odoc.support/odoc.css"/><meta name="generator" content="odoc 3.1.0"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/><script src="../../odoc.support/highlight.pack.js"></script><script>hljs.initHighlightingOnLoad();</script></head><body class="odoc"><nav class="odoc-nav"><a href="index.html">Up</a> – <a href="../../../index.html">Index</a> &#x00BB; <a href="../../index.html">docs</a> &#x00BB; <a href="../index.html">local</a> &#x00BB; <a href="index.html">flux</a> &#x00BB; flux</nav><header class="odoc-preamble"><h2 id="flux,-a-streaming-library."><a href="#flux,-a-streaming-library." class="anchor"></a>Flux, a streaming library.</h2><p>Flux is a library that draws heavily on <a href="https://github.com/snoyberg/conduit">Conduit</a> (in Haskell). The aim is to define a <i>pipeline</i> that:</p><ol><li>consumes elements <code>'a</code> from a producer (<a href="Flux/index.html#type-source"><code>Flux.source</code></a>)</li><li>transforms the producer's elements into other elements (<a href="Flux/index.html#type-flow"><code>Flux.flow</code></a>)</li><li>manipulates these elements to generate a result <code>'r</code> (<a href="Flux/index.html#type-sink"><code>Flux.sink</code></a>)</li></ol><pre class="language-ocaml"><code>     'a source
+  -&gt; ('a, 'b) flow
+  -&gt; ('b, 'c) flow
+  -&gt; ('c, 'r) sink</code></pre><p>A fundamental idea behind Flux is that it is a <i>pull-based</i> library, meaning that the pipeline only operates when you want to manipulate elements from a source. This differs from a <i>push-based</i> approach, where the appearance of a new element always triggers the execution of our pipeline.</p><p>In other words, in a pull-based approach, you have the ability to say <i>stop</i> and stop consuming a source. In a push-based approach, you <b>cannot</b> say stop.</p><pre class="language-ocaml"><code>let push_based_pipeline pipeline = on_http_requests @@ fun req -&gt; pipeline req
+
+let pull_based_pipeline stop acc pipeline = match next () with
+  | Some req -&gt;
+    let acc = pipeline req acc in
+    if not stop then pull_based_pipeline stop acc pipeline
+  | None -&gt; acc</code></pre><p>This approach allows us to exercise fairly fine-grained control over sources (particularly if they are associated with resources that we need to release, such as file descriptors). In particular, resources can be associated with a <code>finally</code> in OCaml terms using <code>Fun.protect</code> or in Miou terms using <code>Miou.Ownership</code> (and thus properly handle the case of cancelling a task in possession of such a resource).</p></header><div class="odoc-tocs"><nav class="odoc-toc odoc-local-toc"><ul><li><a href="#a-simple-example.">A simple example.</a></li><li><a href="#a-sink.">A sink.</a><ul><li><a href="#a-full-sink.">A full sink.</a></li></ul></li><li><a href="#a-flow.">A flow.</a><ul><li><a href="#composition-&amp;-full.">Composition &amp; full.</a></li><li><a href="#composition-and-multiple-elements.">Composition and multiple elements.</a></li></ul></li><li><a href="#concrete-example-with-zlib.">Concrete example with <code>zlib</code>.</a></li><li><a href="#a-source.">A source.</a><ul><li><a href="#fetch-through-http.">Fetch through HTTP.</a></li><li><a href="#parallelism.">Parallelism.</a></li><li><a href="#resources.">Resources.</a></li></ul></li><li><a href="#composition-of-sinks.">Composition of sinks.</a><ul><li><a href="#waiting-state-and-flux.">Waiting state and Flux.</a></li><li><a href="#progress-and-sink.">Progress and Sink.</a></li><li><a href="#composition!">Composition!</a></li><li><a href="#flux,-miou-and-awaiting-state.">Flux, Miou and awaiting state.</a></li></ul></li></ul></nav></div><div class="odoc-content"><h3 id="a-simple-example."><a href="#a-simple-example." class="anchor"></a>A simple example.</h3><p>Let's take a fairly simple example to show the composition proposed by Flux:</p><pre class="language-ocaml"><code>let only_error = String.starts_with ~prefix:&quot;[error]&quot;
+
+let () =
+  Miou_unix.run @@ fun () -&gt;
+  let open Flux in
+  let from = Source.file ~filename:&quot;data.log&quot; in
+  let split_on_newline = Flow.split_on_char '\n' in
+  let filter_on_error = Flow.filter only_error in
+  let add_newline = Flow.map (fun x -&gt; x ^ &quot;\n&quot;) in
+  let via = Flow.(split_on_newline &lt;&lt; filter_on_error &lt;&lt; add_newline) in
+  let into = Sink.file ~filename:&quot;error.log&quot; in
+  let (), leftover = Stream.run ~from ~via ~into in
+  Option.iter Source.dispose leftover</code></pre><p>In this fairly simple example, we consider a source called &quot;data.log&quot;. We want to stream the content line by line (using <code>split_on_char</code>), filter out errors (using <code>filter</code> and <code>only_error</code>), add <code>'\n'</code> (since we just removed it), and write the stream to a file called &quot;error.log&quot;.</p><p>The actual execution of our pipeline (<code>from</code>, <code>via</code>, and <code>into</code>) is done with <a href="Flux/Stream/index.html#val-run"><code>Flux.Stream.run</code></a>. It is possible (but not the case here) that our pipeline does not consume our entire &quot;data.log&quot; file. A <code>leftover</code> may be returned and can be properly released using <a href="Flux/Source/index.html#val-dispose"><code>Flux.Source.dispose</code></a>.</p><p>What is interesting in our example is the composition of our <a href="Flux/index.html#type-flow"><code>Flux.flow</code></a>s using the <a href="Flux/Flow/index.html#val-(&lt;&lt;)"><code>Flux.Flow.(&lt;&lt;)</code></a> operator. This operator allows us to <i>chain</i> several transformations so that we start with a simple series of <code>string</code>s and end up with lines that notify us of errors.</p><h3 id="a-sink."><a href="#a-sink." class="anchor"></a>A sink.</h3><p>Before introducing you to flow composition, we will look at the <a href="Flux/index.html#type-sink"><code>Flux.sink</code></a> type, which allows you to merge the elements of a stream into a single result. For example, we would like to obtain the SHA256 hash of a stream of strings. To do this, using <a href="https://github.com/mirage/digestif">digestif</a>, we would need to:</p><pre class="language-ocaml"><code>let sha256sum =
+  let open Digestif in
+  let init = Fun.const SHA256.empty
+  and push ctx str = SHA256.feed_string ctx str
+  and full = Fun.const false
+  and stop = SHA256.get in
+  Flux.Sink { init; push; full; stop }
+
+let is_regular filename =
+  Sys.file_exists filename &amp;&amp; not (Sys.is_directory filename)
+
+let () =
+  Miou_unix.run @@ fun () -&gt;
+  let via = Flux.Flow.identity in
+  let into = sha256sum in
+  let from, filename =
+    match Sys.argv with
+    | [| _; filename |] when is_regular filename -&gt;
+        (Flux.Source.file ~filename 0x7ff, filename)
+    | [| _ |] -&gt; (Flux.Source.in_channel stdin, &quot;-&quot;)
+    | _ -&gt; Fmt.failwith &quot;%s [&lt;filename&gt;]&quot; Sys.executable_name
+  in
+  let hash, leftover = Flux.Stream.run ~from ~via ~into in
+  Option.iter Flux.Source.dispose leftover;
+  Fmt.pr &quot;%a  %s\n%!&quot; Digestif.SHA256.pp hash filename</code></pre><p>A <a href="Flux/index.html#type-sink"><code>Flux.sink</code></a> therefore needs four functions:</p><ol><li>a function to initialise an internal state <code>init</code> (of type <code>'s</code>)</li><li>a function <code>push</code> that receives elements (of type <code>'a</code>) one by one</li><li>a function that signals when our sink is <i>full</i></li><li>a final function <code>stop</code> that constructs the result (of type <code>'r</code>) according to the internal state <code>'s</code></li></ol><p>The above example clearly shows that the source is also completely decoupled from our <code>sha256sum</code> process. Whether the source comes from a file or <code>stdin</code> makes no difference to our <i>pipeline</i>. More generally, any source that outputs strings (such as a list of strings, an array, a socket, etc.) can be used with <code>sha256sum</code>.</p><p>A Flux extension exists and implements various hash algorithms. These sinks are available with the <code>fluxt.hash</code> library and the <code>Flux_hash</code> module.</p><h4 id="a-full-sink."><a href="#a-full-sink." class="anchor"></a>A full sink.</h4><p>A <a href="Flux/index.html#type-sink"><code>Flux.sink</code></a> can <i>respond</i> during pipeline execution that it is full and thus stop consuming the source being used. The advantage of such a mechanism is that it allows us to build a result without having to consume our entire source. In this case, we could reimplement the <code>head</code> command in this way:</p><pre class="language-ocaml"><code>let n = ref 10
+let filename = ref None
+let usage = Fmt.str &quot;%s [-n &lt;NUM&gt;] [FILE]&quot; Sys.executable_name
+
+let is_regular filename =
+  Sys.file_exists filename &amp;&amp; not (Sys.is_directory filename)
+
+let anon str = if is_regular str then filename := Some str
+
+let args =
+  [ (&quot;-n&quot;, Arg.Set_int n, &quot;Print the first NUM lines instead of the first 10&quot;) ]
+
+let () =
+  Miou_unix.run @@ fun () -&gt;
+  Arg.parse args anon usage;
+  let from =
+    match !filename with
+    | Some filename -&gt; Flux.Source.file ~filename 0x7ff
+    | None -&gt; Flux.Source.in_channel stdin
+  in
+  let via = Flux.Flow.split_on_char '\n' in
+  let into = Flux.Sink.buffer !n in
+  let lines, leftover = Flux.Stream.run ~from ~via ~into in
+  Option.iter Flux.Source.dispose leftover;
+  let from = Flux.Source.array lines in
+  let via = Flux.Flow.map (fun x -&gt; x ^ &quot;\n&quot;) in
+  let into = Flux.Sink.out_channel stdout in
+  let (), leftover = Flux.Stream.run ~from ~via ~into in
+  Option.iter Flux.Source.dispose leftover</code></pre><p>In this example, our first <code>leftover</code>, if the source contains more lines than we would like to keep, will contain <i>the rest</i> of our source (and we will apply <a href="Flux/Source/index.html#val-dispose"><code>Flux.Source.dispose</code></a> in order to correctly free up the file descriptor used). The implementation of <a href="Flux/Sink/index.html#val-buffer"><code>Flux.Sink.buffer</code></a> alerts us, via its <code>full</code> function, if our <i>result is full</i>: in this case, if our array has been completely filled:</p><pre class="language-ocaml"><code>let buffer len =
+  if len &lt; 0 then invalid_arg &quot;buffer: negative buffer size&quot;;
+  if len = 0 then Flux.Sink.fill [||]
+  else
+    let buf = Array.make len None in
+    let init () = 0
+    and push idx x = Array.set buf idx (Some x); idx + 1
+    and full idx = idx = len (* our array is completely filled! *)
+    and stop len = Array.init len (fun idx -&gt; Option.get buf.(idx)) in
+    Flux.Sink { init; push; full; stop }</code></pre><p>So now we know the basics about the <a href="Flux/index.html#type-sink"><code>Flux.sink</code></a> type. We can now look at the <a href="Flux/index.html#type-flow"><code>Flux.flow</code></a> type and its composition.</p><h3 id="a-flow."><a href="#a-flow." class="anchor"></a>A flow.</h3><p>As we saw in our first example, the <a href="Flux/index.html#type-flow"><code>Flux.flow</code></a> type has the advantage of combining well with other flows, allowing us <i>to chain</i> several transformations so that our elements initially have a type <code>'a</code> and are transformed into elements of type <code>'b</code>.</p><pre class="language-ocaml"><code>type ('a, 'b) flow
+
+val compose : ('a, 'b) flow -&gt; ('b, 'c) flow -&gt; ('a, 'c) flow</code></pre><p>Specifically, a <a href="Flux/index.html#type-flow"><code>Flux.flow</code></a> is a particular composition between a <i>sub</i>-<a href="Flux/index.html#type-sink"><code>Flux.sink</code></a> and a new sink performing the transformation. In other words, we must implement a <a href="Flux/index.html#type-sink"><code>Flux.sink</code></a> (as we did before) that will have to <i>push</i> the transformed elements to our sub-sink. Let us take the example of a simple transformation that adds 1 to the numbers received.</p><pre class="language-ocaml"><code>let succ =
+  let flow (Sink k) =
+    let init () = k.init ()
+    and push acc n = k.push acc (n + 1)
+    and full acc = k.full acc
+    and stop acc = k.stop acc in
+    Sink { init; push; full; stop } in
+  { Flux.flow }
+
+let () =
+  let open Flux in
+  let from = Source.list [0; 1; 2] in
+  let into = Sink.list in
+  let lst, _ = Stream.run ~from ~via:succ ~into in
+  assert (lst = [1;2;3])</code></pre><p>As we can see, we can clearly see the <code>+ 1</code> transformation in our <code>push</code> function. The result of this transformation will be <i>pushed</i> to our sub-sink <code>k</code> (using <code>k.push</code>) and we will keep the internal state of our sub-sink (in the example, this is our <code>acc</code> value) throughout our flow. We can, of course, <i>extend</i> the internal state to much more than <code>acc</code> (and have a state that ultimately overlaps with <code>acc</code>).</p><p>This example helps us understand what a flow essentially is: a <i>cascade</i> of <a href="Flux/index.html#type-sink"><code>Flux.sink</code></a>s.</p><p>A flow is simply a new <a href="Flux/index.html#type-sink"><code>Flux.sink</code></a> that performs a transformation (in the <code>push</code> function) and repushes the result of this transformation into its sub-sink <code>k</code>. The <code>init</code> function must essentially initialise the internal state of the sub-sink <code>k</code> as well as possibly an internal state of our current <a href="Flux/index.html#type-sink"><code>Flux.sink</code></a>. The <code>stop</code> function simply returns what the sub-sink <code>k</code> has to return.</p><h4 id="composition-&amp;-full."><a href="#composition-&amp;-full." class="anchor"></a>Composition &amp; full.</h4><p>There is one last function that a <a href="Flux/index.html#type-flow"><code>Flux.flow</code></a> must define: the <code>full</code> function. This function is interesting because even though by default we would like to know if our sub-sink <code>k</code> is full (and we should systematically check this), a <a href="Flux/index.html#type-flow"><code>Flux.flow</code></a> can <i>preempt</i> the result of <code>full</code> and consider itself full even if the sub-sink <code>k</code> is not.</p><p>In this case, in the example of our <code>head</code> command, we unfortunately had to store the first lines of our stream in an array (our first <code>Stream.run</code>) and then transform this result into a source that we would like to display (via our second <code>Stream.run</code>).</p><p>It should be noted that what allows us to <i>keep the first <code>n</code> lines</i> of a stream is <a href="Flux/Sink/index.html#val-buffer"><code>Flux.Sink.buffer</code></a>. Since a <a href="Flux/index.html#type-flow"><code>Flux.flow</code></a> is just a composition of sinks, could we instead define a <a href="Flux/index.html#type-flow"><code>Flux.flow</code></a> that <i>bufferises</i> the first <code>n</code> lines and then displays them directly?</p><pre class="language-ocaml"><code>let buffer len =
+  if len &lt; 0 then invalid_arg &quot;buffer: negative buffer size&quot;;
+  let flow (Flux.Sink k) =
+    let init () = (k.init (), 0)
+    and push (acc, idx) x =
+      if idx = len then (acc, idx) else (k.push acc x, idx + 1)
+    and full (acc, idx) = k.full acc || idx = len
+    and stop (acc, _) = k.stop acc in
+    Flux.Sink { init; push; full; stop }
+  in
+  { Flux.flow }
+
+let () =
+  Miou_unix.run @@ fun () -&gt;
+  Arg.parse args anon usage;
+  let open Flux in
+  let from =
+    match !filename with
+    | Some filename -&gt; Source.file ~filename 0x7ff
+    | None -&gt; Source.in_channel stdin
+  in
+  let via = Flow.(split_on_char '\n' &lt;&lt; buffer !n &lt;&lt; map (fun x -&gt; x ^ &quot;\n&quot;)) in
+  let into = Flux.Sink.out_channel stdout in
+  let (), leftover = Flux.Stream.run ~from ~via ~into in
+  Option.iter Flux.Source.dispose leftover</code></pre><p>What is interesting in this example is the <code>full</code> function, which not only checks that our sub-sink <code>k</code> is not full, but also that our current <a href="Flux/index.html#type-sink"><code>Flux.sink</code></a> is not full according to the number of elements we would like to keep: <code>k.full acc || idx = len</code>. This is how a <a href="Flux/index.html#type-flow"><code>Flux.flow</code></a> can <i>preempt</i> its <i>fullness</i> on top of its sub-sink <code>k</code>.</p><p>We have just optimised the memory consumption of our <code>head</code> command! We now only need a single <a href="Flux/Stream/index.html#val-run"><code>Flux.Stream.run</code></a> and to compose our flows together using the <a href="Flux/Flow/index.html#val-(&lt;&lt;)"><code>Flux.Flow.(&lt;&lt;)</code></a> operator.</p><p>As we can see, what is fundamentally interesting about <a href="Flux/index.html#type-flow"><code>Flux.flow</code></a>s is the ability to define a series of flows in order to transform one type of content into another. The first advantage of the <a href="Flux/index.html#type-flow"><code>Flux.flow</code></a> type is that it can <i>keep</i> an internal state in order to perform this transformation. The other advantage of the <a href="Flux/index.html#type-flow"><code>Flux.flow</code></a> type is that the arrival of a new element can be <i>decoupled</i> from the production of a transformed element: in other words, a new element in our <a href="Flux/index.html#type-source"><code>Flux.source</code></a> does not necessarily imply the appearance of a new transformed element.</p><p>This is particularly the case for <a href="Flux/Flow/index.html#val-split_on_char"><code>Flux.Flow.split_on_char</code></a>, for example, which requires us to <i>bufferise</i> the content in order to split it as soon as the desired character appears (in our example, <code>'\n'</code>).</p><h4 id="composition-and-multiple-elements."><a href="#composition-and-multiple-elements." class="anchor"></a>Composition and multiple elements.</h4><p>A <a href="Flux/index.html#type-flow"><code>Flux.flow</code></a> may generate several elements for a single received element. In this case, these elements must be sent to our sub-sink <code>k</code>. However, adding even a single element can fill up our sub-sink <code>k</code>. This is another aspect of <a href="Flux/index.html#type-sink"><code>Flux.sink</code></a> composition: systematically checking that the sub-sink <code>k</code> is not full after pushing a new element. Let's take the example of a <a href="Flux/index.html#type-flow"><code>Flux.flow</code></a> that repeats elements:</p><pre class="language-ocaml"><code>let repeat n =
+  if n &lt; 0 then invalid_arg &quot;repeat: negative repeat number&quot;;
+  let flow (Flux.Sink k) =
+    let init () = k.init () in
+    let rec push acc x =
+      assert (not (full acc));
+      let rec go acc = function
+        | 0 -&gt; acc
+        | _ when k.full acc -&gt; acc
+        | n -&gt; go (k.push acc x) (n - 1)
+      in
+      go acc n
+    and full acc = k.full acc in
+    let stop acc = k.stop acc in
+    Flux.Sink { init; push; full; stop }
+  in
+  { Flux.flow }</code></pre><p>There is indeed a pre-condition for our <code>push</code> function, which is that it is only called if we know that the current <a href="Flux/index.html#type-sink"><code>Flux.sink</code></a> is not full (and the latter should not be full if the sub-sink <code>k</code> is not full either).</p><p>Then, all subsequent calls to <code>k.push</code> after the first <code>k.push</code> must check that our sub-sink <code>k</code> is not full. In this case, we can add several elements to our sub-sink <code>k</code> safely.</p><p>Since a <a href="Flux/index.html#type-flow"><code>Flux.flow</code></a> is <i>a cascade</i> of <a href="Flux/index.html#type-sink"><code>Flux.sink</code></a>s, and more specifically a cascade of <code>push</code>es, the <code>full</code> function must be composed with the others in such a way that if at least one of the <a href="Flux/index.html#type-sink"><code>Flux.sink</code></a>s is full, the <a href="Flux/index.html#type-flow"><code>Flux.flow</code></a> resulting from the composition of several flows is also full: this is why, in the case of <code>buffer</code>, we used the <code>||</code> operator (if the current <a href="Flux/index.html#type-sink"><code>Flux.sink</code></a> is full or if sub-sink <code>k</code> is full, the <a href="Flux/index.html#type-flow"><code>Flux.flow</code></a> is full).</p><h3 id="concrete-example-with-zlib."><a href="#concrete-example-with-zlib." class="anchor"></a>Concrete example with <code>zlib</code>.</h3><p>Flux offers ready-made implementations for compressing and decompressing streams. Using <a href="https://github.com/mirage/decompress">decompress</a>, the library <code>fluxt.zl</code> and the module <code>Flux_zl</code> offers two <a href="Flux/index.html#type-flow"><code>Flux.flow</code></a>s:</p><pre class="language-ocaml"><code>val deflate : cfg -&gt; (Bstr.t, string) Flux.flow
+val inflate : (Bstr.t, string) Flux.flow</code></pre><p>The latter accept bigstrings and transmit strings (deflated or inflated). Although the use of bigstrings may be debatable, it is more convenient to have a source that transmits strings rather than bigstrings.</p><p>In this case, this is where we can take advantage of flow composition and, in particular, use <a href="Flux/Flow/index.html#val-bstr"><code>Flux.Flow.bstr</code></a>, which allows us to transform strings from a source into bigstrings that can then be processed by our deflation/inflation process. But for the sake of this tutorial, we will try to re-implement <a href="Flux/Flow/index.html#val-bstr"><code>Flux.Flow.bstr</code></a>.</p><p>Here is the most straightforward way to implement such a flow:</p><pre class="language-ocaml"><code>let to_bigstring =
+  let flow (Flux.Sink k) =
+    let init () = k.init ()
+    and push acc str = k.push acc (Bstr.of_string str)
+    and full acc = k.full acc
+    and stop acc = k.stop acc in
+    Flux.Sink { init; push; full; stop } in
+  { Flux.flow }</code></pre><p>One could even <i>reduce</i> this implementation to:</p><pre class="language-ocaml"><code>let to_bigstring = Flux.Flow.map Bstr.of_string</code></pre><p>The disadvantage is that a new bigstring is allocated for each element, which means that <code>malloc(3)</code> is used each time. This function can slow down the entire pipeline. Another strategy would be to allocate only one bigstring and reuse it for each element:</p><pre class="language-ocaml"><code>let to_bigstring =
+  let flow (Flux.Sink k) =
+    let init () = (k.init (), Bstr.create 0x7ff, 0)
+    and push (acc, bstr, dst_off) str =
+      let rec go acc src_off dst_off =
+        if src_off = String.length str
+        then (acc, bstr, dst_off)
+        else
+          let rem_bstr = Bstr.length bstr - dst_off
+          and rem_str = String.length str - src_off in
+          let len = Int.min rem_bstr rem_str in
+          Bstr.blit_from_string str ~src_off bstr ~dst_off ~len;
+          if dst_off + len = Bstr.length bstr
+          then let acc = k.push acc bstr in
+               if k.full acc then (acc, bstr, 0)
+               else go acc (src_off + len) 0
+          else (acc, bstr, dst_off + len) in
+        go acc 0 dst_off
+      and full (acc, _, _) = k.full acc
+      and stop (acc, bstr, dst_off) =
+        if dst_off &gt; 0 &amp;&amp; not (k.full acc)
+        then let bstr = Bstr.sub bstr ~off:0 ~len:dst_off in
+             k.stop (k.push acc bstr)
+        else k.stop acc in
+      Flux.Sink { init; push; full; stop } in
+    { Flux.flow }</code></pre><p>This code is much better because it only allocates a single bigstring and reuses it once our sub-sink's <code>k.push</code> has consumed it. Note that our <code>go</code> function can attempt to pass the bigstring to our sub-sink <code>k</code>, but its recursion (and possibly pushing the bigstring again) is <i>protected</i> by <code>k.full</code> (in order to know if our sub-sink <code>k</code> is not full for the rest of the process).</p><p>Now we can compose!</p><pre class="language-ocaml"><code>let () =
+  Miou_unix.run @@ fun () -&gt;
+  let zl =
+    match Sys.argv with
+    | [| _; &quot;-d&quot; |] -&gt; Flux_zl.(deflate (config ()))
+    | _ -&gt; Flux_zl.inflate
+  in
+  let via = Flux.Flow.(to_bigstring &lt;&lt; zl) in
+  let from = Flux.Source.in_channel stdin in
+  let into = Flux.Sink.out_channel stdout in
+  let (), leftover = Flux.Stream.run ~from ~via ~into in
+  Option.iter Flux.Source.dispose leftover</code></pre><p>This results in the creation of a program capable of deflating/inflating (in zlib format) content. We can test our programme in this way:</p><pre class="language-ocaml"><code>$ ./zpipe -d &lt; samle.txt &gt; sample.z
+$ ./zpipe &lt; sample.z &gt; out.txt
+$ diff sample.txt out.txt
+$ echo $?
+0</code></pre><h3 id="a-source."><a href="#a-source." class="anchor"></a>A source.</h3><p>There is one last element we haven't seen yet: <a href="Flux/index.html#type-source"><code>Flux.source</code></a>s. Until now, our code has been fairly <i>sequential</i> and our sources have more or less corresponded to files (or <code>stdin</code>). However, there may be times when we want a source from a <i>more complicated</i> location.</p><p>This is where Miou comes in. There may be sources that require <b>asynchronous</b> mechanics. Take, for example, a file that we want to obtain using the HTTP protocol. In this case, it is possible to create a source from <i>a task</i> (according to Miou's terminology) in order to retrieve the elements of our source and process these elements <i>at the same time</i>.</p><p>Among all the sources that Flux can offer you, there is one that is very interesting: the <a href="Flux/Source/index.html#val-with_task"><code>Flux.Source.with_task</code></a> source.</p><p>It consists of creating <i>a task</i> (in Miou terms) that can be executed cooperatively or in parallel. A <i>bounded queue</i> will be transmitted to this task, and the objective will be to fill this <i>bounded queue</i>.</p><p>For more information on the bounded queue, please refer to the <a href="Flux/Bqueue/index.html"><code>Flux.Bqueue</code></a> module documentation, which provides some useful examples using Miou.</p><h4 id="fetch-through-http."><a href="#fetch-through-http." class="anchor"></a>Fetch through HTTP.</h4><p>To demonstrate the benefits of this source, we will attempt to download content using <a href="https://github.com/robur-coop/httpcats">httpcats</a>, a library that enables communication with an HTTP server. The objective is simply to download the content and save it to a file.</p><pre class="language-ocaml"><code>let ( let@ ) finally fn = Fun.protect ~finally fn
+let ( &gt;&gt;= ) = Result.bind
+
+let uri = ref None
+let output = ref None
+let anon str = uri := Some str
+let usage = Fmt.str &quot;%s -o &lt;file&gt; &lt;uri&gt;&quot; Sys.executable_name
+
+let is_redirection resp = Httpcats.Status.is_redirection resp.Httpcats.status
+let or_failwith fn = function Ok v -&gt; v | Error err -&gt; failwith (fn err)
+
+let args =
+  [ (&quot;-o&quot;, Arg.String (fun str -&gt; output := Some str), &quot;The output file&quot;) ]
+
+let () =
+  Miou_unix.run @@ fun () -&gt;
+  Arg.parse args anon usage;
+  match (!uri, !output) with
+  | None, _ | _, None -&gt; Fmt.epr &quot;%s\n%!&quot; usage; exit 1
+  | Some uri, Some output -&gt;
+      let rng = Mirage_crypto_rng_miou_unix.(initialize (module Pfortuna)) in
+      let@ () = fun () -&gt; Mirage_crypto_rng_miou_unix.kill rng in
+      let from =
+        Flux.Source.with_task ~size:0x7ff @@ fun q -&gt;
+        let fn _ _ resp () str =
+          if not (is_redirection resp) then
+            match str with
+            | Some str -&gt; Flux.Bqueue.put q str
+            | None -&gt; Flux.Bqueue.close q
+        in
+        Httpcats.request ~uri ~fn ()
+        &gt;&gt;= (fun (_, ()) -&gt; Ok ())
+        |&gt; or_failwith (Fmt.str &quot;%a&quot; Httpcats.pp_error)
+      in
+      let via = Flux.Flow.identity in
+      let into = Flux.Sink.file ~filename:output in
+      let (), leftover = Flux.Stream.run ~from ~via ~into in
+      Option.iter Flux.Source.dispose leftover</code></pre><p>In this code, there are several elements related to <code>httpcats</code> (notably <code>rng</code>) which we recommend you read the documentation for. But what is noteworthy is the use of <a href="Flux/Source/index.html#val-with_task"><code>Flux.Source.with_task</code></a>. Inside the function, we perform our HTTP request and <code>httpcats</code> will execute the <code>fn</code> function, which aims to transmit what <code>httpcats</code> has successfully decoded into our queue.</p><p>It is important to understand that at this stage, the request <b>has not yet</b> been actually made! We are just <b>describing</b> a source. The source will then be actually executed when we use <a href="Flux/Stream/index.html#val-run"><code>Flux.Stream.run</code></a>.</p><p>We do not wish to make any changes (<a href="Flux/Flow/index.html#val-identity"><code>Flux.Flow.identity</code></a>) and decide to save our source in a file using <a href="Flux/Sink/index.html#val-file"><code>Flux.Sink.file</code></a>. All we need to do is run our programme in this way:</p><pre class="language-ocaml"><code>$ ./fetch.exe -o index.tar.gz https://opam.ocaml.org/index.tar.gz
+$ file index.tar.gz
+index.tar.gz: gzip compressed data, from Unix</code></pre><p>It should be noted that <a href="Flux/Source/index.html#val-dispose"><code>Flux.Source.dispose</code></a> is particularly important here. This is because the source we are manipulating is <i>a task</i> (<code>'a Miou.t</code>), and one of Miou's fundamental rules is to never forget its tasks. We must therefore call our source's <code>stop</code> function to ensure that our task has been completed successfully.</p><h4 id="parallelism."><a href="#parallelism." class="anchor"></a>Parallelism.</h4><p>If you have taken the time to look at the <a href="Flux/Bqueue/index.html"><code>Flux.Bqueue</code></a> module, you will have noticed that it is <i>domain-safe</i> data-structure, meaning that it can be shared between multiple domains. It is fairly simple to parallelise this code, since we use the <i>bounded-queue</i> to transfer elements from our source to the rest of our pipeline.</p><p>In addition, <a href="Flux/Source/index.html#val-with_task"><code>Flux.Source.with_task</code></a> can launch a task in parallel with the domain in which we are located; we simply need to specify the <code>~parallel:true</code> option! Voilà!</p><h4 id="resources."><a href="#resources." class="anchor"></a>Resources.</h4><p>If you are familiar with Miou, you have probably seen the <code>Miou.Ownership</code> module. The purpose of this module is to associate a <i>finaliser</i> with a value so that if a task is cancelled or ends abnormally (for example, due to an exception being raised), Miou ensures that the finaliser will be executed.</p><p>This is particularly useful if you want to ensure that your file descriptors, for example, are closed at the end of a task.</p><p>This is why Flux offers <a href="Flux/Source/index.html#val-resource"><code>Flux.Source.resource</code></a>, which associates a finaliser with a given resource via Miou. This resource can be used to generate elements and will be <i>released</i> in all cases:</p><ol><li>the normal case where our pipeline has executed correctly</li><li>the case where the execution of our pipeline has raised an exception</li><li>the case where we attempt to <code>Miou.cancel</code> the task that executes our pipeline</li></ol><pre class="language-ocaml"><code>let () =
+  Miou_unix.run @@ fun () -&gt;
+  let socket = Miou_unix.tcpv4 () in
+  let finally = Miou_unix.close in
+  let buf = Bytes.create 0x7ff in
+  let pull socket =
+    match Miou_unix.read socket buf with
+    | 0 -&gt; None
+    | len -&gt; Some (Bytes.sub_string buf 0 len) in
+  let from = Flux.Source.resource ~finally pull socket in
+  ...</code></pre><h3 id="composition-of-sinks."><a href="#composition-of-sinks." class="anchor"></a>Composition of sinks.</h3><p>There is one last composition that we have not yet seen, which consists of producing two different results for the same source (transformed or not).</p><p>For example, we would like to download a file using httpcats but also display a download bar to make the display a little fancier.</p><p>There is a library for creating download bars called <a href="https://github.com/craigfe/progress">progress</a>. Once again, for more details on how to use this library, I recommend reading the documentation. The idea with Flux is very simple: we will create another <a href="Flux/index.html#type-sink"><code>Flux.sink</code></a> that will display the bar according to the bytes transmitted by <code>httpcats</code>.</p><p>However, in order to display a bar, we need to know the size of the document we want to download. This information is only available via <code>httpcats</code>, and we need to find a way to transfer it to our <a href="Flux/index.html#type-sink"><code>Flux.sink</code></a>, which will display the download bar.</p><h4 id="waiting-state-and-flux."><a href="#waiting-state-and-flux." class="anchor"></a>Waiting state and Flux.</h4><p>This is where we need to introduce a concept that is more related to Miou than to Flux, namely <i>write-once variable</i> or <code>Miou.Computation.t</code>. This value allows us to transmit a single piece of information from one task to another:</p><pre class="language-ocaml"><code>val create : unit -&gt; 'a t
+val try_return : 'a t -&gt; 'a -&gt; bool
+val await_exn : 'a t -&gt; 'a</code></pre><p>We will therefore use this variable in our source to transmit the size of the document we are attempting to download:</p><pre class="language-ocaml"><code>let set_length length (resp : Httpcats.response) =
+  let hdrs = resp.Httpcats.headers in
+  let content_length = Httpcats.Headers.get hdrs &quot;content-length&quot; in
+  let value = Option.bind content_length int_of_string_opt in
+  ignore (Miou.Computation.try_return length value)
+
+...
+
+  let length = Miou.Computation.create () in
+  let from =
+    Flux.Source.with_task ~parallel:true ~size:0x7ff @@ fun q -&gt;
+    let fn _ _ resp () str =
+      if not (is_redirection resp) then
+        let () = set_length length resp in (* here, we transfer the length *)
+        match str with
+        | Some str -&gt; Flux.Bqueue.put q str
+        | None -&gt; Flux.Bqueue.close q
+    in
+    Httpcats.request ~uri ~fn ()
+    &gt;&gt;= (fun (_, ()) -&gt; Ok ())
+    |&gt; or_failwith (Fmt.str &quot;%a&quot; Httpcats.pp_error)</code></pre><h4 id="progress-and-sink."><a href="#progress-and-sink." class="anchor"></a>Progress and Sink.</h4><p>On the consumption side, we will need to define a process that, at the beginning, does not know how to display a download bar (since we do not <i>yet</i> know the size of the document). As soon as we receive the first <i>chunk</i> of the response, we will be able to obtain the size of the document we are downloading (because if we receive a chunk of the document, it means we have necessarily received the <i>headers</i> from the HTTP response).</p><pre class="language-ocaml"><code>let progress length =
+  let open Progress in
+  let config = Config.v ~ppf:Fmt.stdout () in
+  let fn state str =
+    match state with
+    | Some (reporter, display) -&gt;
+        reporter (String.length str);
+        Some (reporter, display)
+    | None -&gt;
+        let length = Miou.Computation.await_exn length in
+        let line = line length in
+        let display = Multi.line line |&gt; Display.start ~config in
+        let[@warning &quot;-8&quot;] Reporter.[ reporter ] = Display.reporters display in
+        reporter (String.length str);
+        Some (reporter, display)
+  in
+  Flux.Sink.fold fn None</code></pre><p>The <code>line</code> function in the code above is a function that constructs how we want to display the bar. It may happen that we do not know the size of the document, in which case we display a <i>spinner</i>.</p><pre class="language-ocaml"><code>let sizes = [| &quot;B&quot;; &quot;KiB&quot;; &quot;MiB&quot;; &quot;GiB&quot;; &quot;TiB&quot;; &quot;PiB&quot;; &quot;EiB&quot;; &quot;ZiB&quot;; &quot;YiB&quot; |]
+
+let bytes_to_size ?(decimals = 2) ppf = function
+  | 0 -&gt; Fmt.string ppf &quot;0 byte&quot;
+  | n -&gt;
+      let n = float_of_int n in
+      let i = Float.floor (Float.log n /. Float.log 1024.) in
+      let r = n /. Float.pow 1024. i in
+      Fmt.pf ppf &quot;%.*f %s&quot; decimals r sizes.(int_of_float i)
+
+let line total =
+  let open Progress.Line in
+  let style = if Fmt.utf_8 Fmt.stdout then `UTF8 else `ASCII in
+  match total with
+  | Some total -&gt;
+      let width = `Fixed 30 in
+      let metric = bytes_to_size ~decimals:2 in
+      list [ bar ~style ~width total; bytes; constf &quot; / %a&quot; metric total ]
+  | None -&gt;
+      let frames = [ &quot;⠋&quot;; &quot;⠙&quot;; &quot;⠹&quot;; &quot;⠸&quot;; &quot;⠼&quot;; &quot;⠴&quot;; &quot;⠦&quot;; &quot;⠧&quot;; &quot;⠇&quot;; &quot;⠏&quot; ] in
+      let spin = spinner ~frames () in
+      list [ spin; bytes; bytes_per_sec ]</code></pre><h4 id="composition!"><a href="#composition!" class="anchor"></a>Composition!</h4><p>Flux offers <i>let-bindings</i> that allow you to compose multiple sinks together. In this case, we would like to save the document to a file <b>and</b> display our download bar. We can then use <a href="Flux/Sink/Syntax/index.html#val-(let+)"><code>Flux.Sink.Syntax.(let+)</code></a> and <a href="Flux/Sink/Syntax/index.html#val-(and+)"><code>Flux.Sink.Syntax.(and+)</code></a> to combine multiple sinks and manipulate their results:</p><pre class="language-ocaml"><code>  let into =
+    let open Flux.Sink.Syntax in
+    let+ () = Flux.Sink.file ~filename:output
+    and+ reporter_and_display = progress length in
+    let display = Option.map snd reporter_and_display in
+    Option.iter Progress.Display.finalise display
+  in</code></pre><p>There you go! If you test this program, you will see a download bar!</p><div><a href="https://raw.githubusercontent.com/robur-coop/flux/refs/heads/main/assets/fetch.gif" class="img-link"><img src="https://raw.githubusercontent.com/robur-coop/flux/refs/heads/main/assets/fetch.gif" alt="https://raw.githubusercontent.com/robur-coop/flux/refs/heads/main/assets/fetch.gif"/></a></div><p>The most attentive user of Miou and this tutorial might imagine that the actual application of saving the response in a file and displaying the download bar could be done <b>in parallel</b>. And they would be right!</p><p>The operator <a href="Flux/Sink/Syntax/index.html#val-(and+)"><code>Flux.Sink.Syntax.(and+)</code></a> corresponds to the <a href="Flux/Sink/index.html#val-zip"><code>Flux.Sink.zip</code></a> function, but there is also the <a href="Flux/Sink/index.html#val-both"><code>Flux.Sink.both</code></a> function, which executes sinks in tasks that run in parallel (via <code>Miou.call</code>). However, we would like to warn users that <a href="Flux/Sink/index.html#val-both"><code>Flux.Sink.both</code></a> cannot be used with <i>let-binding</i>, as Miou's structured concurrency paradigm does not apply well in a chain of <code>and+</code>.</p><h4 id="flux,-miou-and-awaiting-state."><a href="#flux,-miou-and-awaiting-state." class="anchor"></a>Flux, Miou and awaiting state.</h4><p>One final note is necessary regarding the <i>awaiting state</i> that can be induced by <code>Miou.Computation.await_exn</code> and the actual execution of the <a href="Flux/index.html#type-sink"><code>Flux.sink</code></a>s.</p><p>We could modify our <code>progress</code> function to directly attempt to obtain the size of the document we want to download. However, this implies that the creation of our <code>progress</code> <a href="Flux/index.html#type-sink"><code>Flux.sink</code></a> depends on our <code>length</code> variable, which is only filled once the source begins to emit.</p><p>It has been mentioned that when you use <a href="Flux/Source/index.html#val-with_task"><code>Flux.Source.with_task</code></a>, the code that must be executed by the task is only executed during <a href="Flux/Stream/index.html#val-run"><code>Flux.Stream.run</code></a> (and not before). The problem is that <a href="Flux/Stream/index.html#val-run"><code>Flux.Stream.run</code></a> needs the value <code>into</code>, which comes from the composition of our two sinks, but one of which, <code>progress</code>, should only be created if and only if the <code>length</code> variable is filled.</p><p>So, if we wanted to create our <code>progress</code> <a href="Flux/index.html#type-sink"><code>Flux.sink</code></a> based on the <code>length</code> variable, we would end up with <i>a deadlock</i> because <code>length</code> would never be filled since the <a href="Flux/index.html#type-source"><code>Flux.source</code></a> would never be consumed because the <code>into</code> value does not exist <i>yet</i>.</p><p>This is why we perform our <code>Miou.Computation.await_exn</code> during the actual execution (in the <code>fn</code> function used by <a href="Flux/Sink/index.html#val-fold"><code>Flux.Sink.fold</code></a>) of our <a href="Flux/index.html#type-sink"><code>Flux.sink</code></a> <code>progress</code> (and not before).</p></div></body></html>

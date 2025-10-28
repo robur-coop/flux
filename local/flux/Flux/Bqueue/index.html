@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml"><head><title>Bqueue (docs.local.flux.Flux.Bqueue)</title><meta charset="utf-8"/><link rel="stylesheet" href="../../../../odoc.support/odoc.css"/><meta name="generator" content="odoc 3.1.0"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/><script src="../../../../odoc.support/highlight.pack.js"></script><script>hljs.initHighlightingOnLoad();</script></head><body class="odoc"><nav class="odoc-nav"><a href="../index.html">Up</a> – <a href="../../../../../index.html">Index</a> &#x00BB; <a href="../../../../index.html">docs</a> &#x00BB; <a href="../../../index.html">local</a> &#x00BB; <a href="../../index.html">flux</a> &#x00BB; <a href="../index.html">Flux</a> &#x00BB; Bqueue</nav><header class="odoc-preamble"><h1>Module <code><span>Flux.Bqueue</span></code></h1></header><div class="odoc-tocs"><nav class="odoc-toc odoc-local-toc"><ul><li><a href="#a-bounded-queue.">A bounded-queue.</a><ul><li><a href="#infinite-queue.">Infinite queue.</a></li><li><a href="#closeable-queue.">Closeable queue.</a></li><li><a href="#closeable-and-haltable-queue.">Closeable and haltable queue.</a></li><li><a href="#ownership-and-bqueue.">Ownership and <code>Bqueue</code>.</a></li><li><a href="#bounded-queue.">Bounded queue.</a><ul><li><a href="#types-of-bounded-queue.">Types of bounded-queue.</a></li></ul></li></ul></li></ul></nav></div><div class="odoc-content"><h2 id="a-bounded-queue."><a href="#a-bounded-queue." class="anchor"></a>A bounded-queue.</h2><p><code>Bqueue</code> is a domain-safe implementation of a limited queue (in terms of memory). This means that as soon as the size limit is reached, when you want to fill the queue, the task responsible for filling is suspended and will only continue when another task has consumed at least one element from the queue. This way, you can be sure of the memory consumption of a process.</p><p>There are three types of queues:</p><ul><li><a href="#type-infinite"><code>infinite</code></a> queues</li><li>queues that can be closed (<a href="#type-with_close"><code>with_close</code></a>)</li><li>queues that can be closed or signal the end of consumption (as we say be halted) (<a href="#type-with_close_and_halt"><code>with_close_and_halt</code></a>)</li></ul><h3 id="infinite-queue."><a href="#infinite-queue." class="anchor"></a>Infinite queue.</h3><p>An infinite queue is useful when you know that the consumer is a task that should never be interrupted throughout the program.</p><p>It is very useful when you want to launch a background task that can perform certain actions throughout the lifetime of your program. Only cancellation (<code>Miou.cancel</code>) is then possible to stop this task (which should run forever).</p><pre class="language-ocaml"><code>  let daemon () =
+    let q = Flux.Bqueue.(create infinite 0x7ff) in
+    let rec go () =
+      let `Are_you_alive = Flux.Bqueue.get q in
+      print_endline &quot;I'm alive!&quot;;
+      go ()
+    in
+    (Miou.call go, q)
+
+  let ( let@ ) finally fn = Fun.protect ~finally fn
+
+  let () =
+    Miou_unix.run ~domains:1 @@ fun () -&gt;
+    let daemon, q = daemon () in
+    let@ () = fun () -&gt; Miou.cancel daemon in
+    let are_you_alive _ = Flux.Bqueue.put q `Are_you_alive in
+    let behavior = Sys.Signal_handle are_you_alive in
+    ignore (Miou.sys_signal Sys.sigint behavior);
+    while true do
+      Miou_unix.sleep 1.
+    done</code></pre><p>Thanks to the type system, <code>Flux.Bqueue.get</code> only returns values and will never return <code>None</code> since it is an infinite queue.</p><h3 id="closeable-queue."><a href="#closeable-queue." class="anchor"></a>Closeable queue.</h3><p>Miou only allows values to be transmitted between children and its parent. Any other mechanism for transmitting information requires a more complex structure (such as an atomic, a queue, etc.) depending on whether the tasks operate cooperatively or in parallel.</p><p>Thus, a fairly common structure is a queue, where one task is responsible for filling it and another task is responsible for consuming it. <code>Bqueue</code> is this queue with the advantage of being <b>domain-safe</b> (unlike <code>Stdlib.Queue</code>): that is, it can be used with <code>Miou.async</code> (for cooperative tasks) or <code>Miou.call</code> (for parallel tasks).</p><p>Since all tasks should be completed, it is necessary to have a signal to tell the consumer that the producer has no more information to transmit. This is referred to as a <i>closeable</i> queue.</p><pre class="language-ocaml"><code>  let consumer q max =
+    let counter = ref 0 in
+    Format.printf &quot;%d/%d%!&quot; !counter max;
+    let rec go () =
+      match Flux.Bqueue.get q with
+      | None -&gt; Format.printf &quot;\n%!&quot;
+      | Some bytes -&gt;
+          counter := !counter + bytes;
+          Format.printf &quot;\r%d/%d%!&quot; !counter max;
+          go ()
+    in
+    Miou.async go
+
+  let producer q ic =
+    let buf = Bytes.create 0x7ff in
+    let rec go () =
+      match input ic buf 0 (Bytes.length buf) with
+      | 0 | (exception End_of_file) -&gt; Flux.Bqueue.close q
+      | len -&gt; Flux.Bqueue.put q len; go ()
+    in
+    Miou.call go
+
+  let ( let@ ) finally fn = Fun.protect ~finally fn
+
+  let () =
+    Miou_unix.run ~domains:1 @@ fun () -&gt;
+    let q = FLux.Bqueue.(create with_close 0x7ff) in
+    let ic = open_in Sys.argv.(1) in
+    let@ () = fun () -&gt; close_in ic in
+    let max = in_channel_length ic in
+    let prm0 = consumer q max and prm1 = producer q ic in
+    Miou.await_all [ prm0; prm1 ]
+    |&gt; List.iter (function Ok () -&gt; () | Error exn -&gt; raise exn)</code></pre><p>It is ensured that the consumer (unless cancelled) consumes all the elements sent by the producer. Note the use of <code>Miou.async</code> and <code>Miou.call</code> in the example above.</p><p>There are many examples of this type of queue, and you can refer to our tutorial on how to use this module with the streams we offer in this library.</p><h3 id="closeable-and-haltable-queue."><a href="#closeable-and-haltable-queue." class="anchor"></a>Closeable and haltable queue.</h3><p>There is one last type of queue called a <i>haltable</i> queue. Sometimes you may want to have an infinite queue but still be able to close it so that the consumer does not consume from it indefinitely.</p><p>Unlike closing, halting a queue informs the consumer that there should be no more items, even if the producer has produced some. These items are then ignored, and the consumer, even if it has not consumed everything, receives the signal that the queue should no longer produce anything.</p><pre class="language-ocaml"><code>  let random q =
+    let ic = open_in &quot;/dev/urandom&quot; in
+    let icr = Miou.Ownership.create ~finally:close_in ic in
+    let qr = Miou.Ownership.create ~finally:Flux.Bqueue.halt q in
+    Miou.Ownership.own icr;
+    Miou.Ownership.own qr;
+    let buf = Bytes.create 0x7ff in
+    let rec go () =
+      match input ic buf 0 (Bytes.length buf) with
+      | 0 | (exception End_of_file) -&gt;
+          Miou.Ownership.release icr;
+          Miou.Ownership.release qr
+      | len -&gt;
+          let str = Bytes.sub_string buf 0 len in
+          Flux.Bqueue.put q str; got ()
+    in
+    Miou.call ~give:[ icr; qr ] go
+
+  let entropy q =
+    let freqs = Array.make 256 0 in
+    let rec go iter () =
+      match Flux.Bqueue.get q with
+      | None -&gt;
+          let total = Array.fold_left Int.add 0 freqs in
+          let total = FLoat.of_int total in
+          let entropy = ref 0. in
+          for byte = 0 to 255 do
+            match freqs.(byte) with
+            | 0 -&gt; ()
+            | n -&gt;
+                let count = Float.of_int n in
+                let p = count /. total in
+                if p &gt;= 0. then entropy := !entropy -. (p *. Float.log2 p)
+          done;
+          (!entropy, iter)
+      | Some str -&gt;
+          let fn chr = freqs.(Char.code chr) &lt;- freqs.(Char.code chr) + 1 in
+          String.iter fn str;
+          go (succ iter) ()
+    in
+    Miou.async (go 0)
+
+  let () =
+    Miou_unix.run ~domains:1 @@ fun () -&gt;
+    let q = Flux.Bqueue.(create with_close_and_halt 0x7ff) in
+    let prm0 = random q and prm1 = entropy q in
+    Miou_unix.sleep 1.;
+    Miou.cancel prm0;
+    let entropy, iter = Miou.await_exn prm1 in
+    Format.printf &quot;Entropy %f (%d iteration(s))\n%!&quot; entropy iter</code></pre><p>In the example above, there is an infinite source of random values. We also want a task to calculate the entropy of what <code>/dev/urandom</code> generates. However, we would like the consumer to finalise its result as soon as our random value generator halts (with <code>Flux.Bqueue.halt</code>).</p><p>Cancelling our task <code>random</code> calls the <code>finally</code> associated with our resource <code>qr</code>, which then executes <code>Flux.Bqueue.halt</code>.</p><h3 id="ownership-and-bqueue."><a href="#ownership-and-bqueue." class="anchor"></a>Ownership and <code>Bqueue</code>.</h3><p>Closing and/or halting a <code>Bqueue</code> queue has no effect, so it is safe to create a resource (in Miou's terms) and use <code>Flux.Bqueue.close</code> and/or <code>Flux.Bqueue.halt</code> as <i>finally</i>.</p><h3 id="bounded-queue."><a href="#bounded-queue." class="anchor"></a>Bounded queue.</h3><p>The principle of a queue with a limited size has one disadvantage: there <b>must be</b> a consumer that runs cooperatively (or in parallel) with the producer. If this is not the case (and the producer and consumer are running sequentially, for example), a <i>deadlock</i> can occur: since no one is consuming and the queue is full, the producer will be in an infinite wait.</p><p>This therefore requires discipline on the part of the user to properly initiate a producer and a consumer cooperatively and/or in parallel.</p><p>However, the advantage of such a queue is the predictability of memory usage. This is particularly true when the source is not controlled: for example, when a user wants to upload a file.</p><p>From experience, and particularly when developing applications as services, it is preferable to use a bounded queue. This is because using a simple queue makes its memory usage closely linked to how the scheduler orders tasks: will it only execute the producer until it finishes? Will it give the consumer the opportunity to execute? Will the consumer attempt to execute before or after the producer? Can we ensure that the execution of the producer and consumer are interleaved?</p><p>Given all these questions, we recommend using a bounded queue rather than a <i>stream</i> for which adding is never blocking.</p><div class="odoc-spec"><div class="spec type anchored" id="type-t"><a href="#type-t" class="anchor"></a><code><span><span class="keyword">type</span> <span>('a, 'r) t</span></span></code></div><div class="spec-doc"><p>Type of bounded queues.</p></div></div><div class="odoc-spec"><div class="spec type anchored" id="type-c"><a href="#type-c" class="anchor"></a><code><span><span class="keyword">type</span> <span>'a c</span></span><span> = <span><span>(<span class="type-var">'a</span>, <span><span class="type-var">'a</span> option</span>)</span> <a href="#type-t">t</a></span></span></code></div><div class="spec-doc"><p>Type of closeable (and possibly haltable) bounded queue.</p></div></div><h4 id="types-of-bounded-queue."><a href="#types-of-bounded-queue." class="anchor"></a>Types of bounded-queue.</h4><div class="odoc-spec"><div class="spec type anchored" id="type-infinite"><a href="#type-infinite" class="anchor"></a><code><span><span class="keyword">type</span> infinite</span></code></div></div><div class="odoc-spec"><div class="spec type anchored" id="type-with_close"><a href="#type-with_close" class="anchor"></a><code><span><span class="keyword">type</span> with_close</span></code></div></div><div class="odoc-spec"><div class="spec type anchored" id="type-with_close_and_halt"><a href="#type-with_close_and_halt" class="anchor"></a><code><span><span class="keyword">type</span> with_close_and_halt</span></code></div></div><div class="odoc-spec"><div class="spec type anchored" id="type-s"><a href="#type-s" class="anchor"></a><code><span><span class="keyword">type</span> <span>('a, 'k, 'r) s</span></span></code></div><div class="spec-doc"><p>Type to describe bounded-queue's behaviors.</p></div></div><div class="odoc-spec"><div class="spec value anchored" id="val-infinite"><a href="#val-infinite" class="anchor"></a><code><span><span class="keyword">val</span> infinite : <span><span>(<span class="type-var">'a</span>, <a href="#type-infinite">infinite</a>, <span class="type-var">'a</span>)</span> <a href="#type-s">s</a></span></span></code></div><div class="spec-doc"><p><code>infinite</code> permits to <a href="#val-create"><code>create</code></a> an <i>infinite</i> bounded-queue.</p></div></div><div class="odoc-spec"><div class="spec value anchored" id="val-with_close"><a href="#val-with_close" class="anchor"></a><code><span><span class="keyword">val</span> with_close : <span><span>(<span class="type-var">'a</span>, <a href="#type-with_close">with_close</a>, <span><span class="type-var">'a</span> option</span>)</span> <a href="#type-s">s</a></span></span></code></div><div class="spec-doc"><p><code>with_close</code> permits to <a href="#val-create"><code>create</code></a> a <i>closeable</i> bounded-queue.</p></div></div><div class="odoc-spec"><div class="spec value anchored" id="val-with_close_and_halt"><a href="#val-with_close_and_halt" class="anchor"></a><code><span><span class="keyword">val</span> with_close_and_halt : <span><span>(<span class="type-var">'a</span>, <a href="#type-with_close_and_halt">with_close_and_halt</a>, <span><span class="type-var">'a</span> option</span>)</span> <a href="#type-s">s</a></span></span></code></div><div class="spec-doc"><p><code>with_close_and_halt</code> permits to <a href="#val-create"><code>create</code></a> a <i>closeable</i> and <i>haltable</i> bounded-queue.</p></div></div><div class="odoc-spec"><div class="spec value anchored" id="val-create"><a href="#val-create" class="anchor"></a><code><span><span class="keyword">val</span> create : <span><span><span>(<span class="type-var">'a</span>, <span class="type-var">'k</span>, <span class="type-var">'r</span>)</span> <a href="#type-s">s</a></span> <span class="arrow">&#45;&gt;</span></span> <span>int <span class="arrow">&#45;&gt;</span></span> <span><span>(<span class="type-var">'a</span>, <span class="type-var">'r</span>)</span> <a href="#type-t">t</a></span></span></code></div><div class="spec-doc"><p><code>create s size</code> creates a new bounded-queue.</p></div></div><div class="odoc-spec"><div class="spec value anchored" id="val-put"><a href="#val-put" class="anchor"></a><code><span><span class="keyword">val</span> put : <span><span><span>(<span class="type-var">'a</span>, <span class="type-var">'r</span>)</span> <a href="#type-t">t</a></span> <span class="arrow">&#45;&gt;</span></span> <span><span class="type-var">'a</span> <span class="arrow">&#45;&gt;</span></span> unit</span></code></div><div class="spec-doc"><p><code>put q x</code> adds the element <code>x</code> at the end of the queue <code>q</code>.</p></div></div><div class="odoc-spec"><div class="spec value anchored" id="val-get"><a href="#val-get" class="anchor"></a><code><span><span class="keyword">val</span> get : <span><span><span>(<span class="type-var">'a</span>, <span class="type-var">'r</span>)</span> <a href="#type-t">t</a></span> <span class="arrow">&#45;&gt;</span></span> <span class="type-var">'r</span></span></code></div><div class="spec-doc"><p><code>get q</code> removes and returns the first element in queue <code>q</code>. Depending on the type of the given bounded-queue, <code>get</code> always returns an element if it's an <a href="#type-infinite"><code>infinite</code></a> bounded-queue or <code>get</code> returns <code>None</code> if the queue is closed and/or halted.</p></div></div><div class="odoc-spec"><div class="spec value anchored" id="val-close"><a href="#val-close" class="anchor"></a><code><span><span class="keyword">val</span> close : <span><span><span>(<span class="type-var">'a</span>, <span class="type-var">'r</span>)</span> <a href="#type-t">t</a></span> <span class="arrow">&#45;&gt;</span></span> unit</span></code></div><div class="spec-doc"><p><code>close q</code> closes the given bounded-queue <code>q</code>. All subsequent <a href="#val-put"><code>put</code></a> calls will raise an exception. If the producer has any pending elements, consumer will have an opportunity to <a href="#val-get"><code>get</code></a> them before receiving <code>None</code>. <code>close q</code> does nothing for an infinite queue.</p></div></div><div class="odoc-spec"><div class="spec value anchored" id="val-halt"><a href="#val-halt" class="anchor"></a><code><span><span class="keyword">val</span> halt : <span><span><span>(<span class="type-var">'a</span>, <span class="type-var">'r</span>)</span> <a href="#type-t">t</a></span> <span class="arrow">&#45;&gt;</span></span> unit</span></code></div><div class="spec-doc"><p><code>halt q</code> halts the given bounded-queue <code>q</code>. All subsequent <a href="#val-put"><code>put</code></a> calls will raise an exception. If the producer has any pending elements, they will be <b>discarded</b> if the given <code>q</code> is a <a href="#type-with_close_and_halt"><code>with_close_and_halt</code></a> bounded-queue. <code>halt q</code> has the same effect than <a href="#val-close"><code>close</code></a> for a <a href="#type-with_close"><code>with_close</code></a> bounded-queue. <code>halt q</code> does nothing for an infinite queue.</p></div></div><div class="odoc-spec"><div class="spec value anchored" id="val-iter"><a href="#val-iter" class="anchor"></a><code><span><span class="keyword">val</span> iter : <span><span>(<span><span class="type-var">'a</span> <span class="arrow">&#45;&gt;</span></span> unit)</span> <span class="arrow">&#45;&gt;</span></span> <span><span><span>(<span class="type-var">'a</span>, <span class="type-var">'r</span>)</span> <a href="#type-t">t</a></span> <span class="arrow">&#45;&gt;</span></span> unit</span></code></div><div class="spec-doc"><p><code>iter fn q</code> applies fn in turn to all elements of <code>q</code>, from the least recently entered to the most recently entered. The queue itself is unchanged.</p></div></div><div class="odoc-spec"><div class="spec value anchored" id="val-of_list"><a href="#val-of_list" class="anchor"></a><code><span><span class="keyword">val</span> of_list : <span><span><span class="type-var">'a</span> list</span> <span class="arrow">&#45;&gt;</span></span> <span><span>(<span class="type-var">'a</span>, <span><span class="type-var">'a</span> option</span>)</span> <a href="#type-t">t</a></span></span></code></div></div><div class="odoc-spec"><div class="spec value anchored" id="val-single"><a href="#val-single" class="anchor"></a><code><span><span class="keyword">val</span> single : <span><span class="type-var">'a</span> <span class="arrow">&#45;&gt;</span></span> <span><span>(<span class="type-var">'a</span>, <span><span class="type-var">'a</span> option</span>)</span> <a href="#type-t">t</a></span></span></code></div></div></div></body></html>
