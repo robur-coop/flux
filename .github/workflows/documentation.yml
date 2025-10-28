@@ -9,7 +9,7 @@ jobs:
     name: Deploy documentation
     strategy:
       matrix:
-        ocaml-version: [5.4.0]
+        ocaml-version: [5.3.0]
         operating-system: [ubuntu-latest]
     runs-on: ${{ matrix.operating-system }}
     steps:
