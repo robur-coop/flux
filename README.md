@@ -1,4 +1,4 @@
-# Flux, a composable streaming abstractions with [Miou][miou]
+# Flux, composable streaming abstractions with [Miou][miou]
 
 Flux is a library that implements [a bounded queue][bqueue] as well as several
 abstractions related to streams. It can take advantage of parallelisation as
