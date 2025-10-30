@@ -421,6 +421,15 @@ module Sink = struct
     and stop () = () in
     Sink { init; push; full; stop }
 
+  let is_full (Sink k) = k.full (k.init ())
+
+  let is_empty =
+    let init () = true
+    and push _ _ = false
+    and full _ = false
+    and stop = Fun.id in
+    Sink { init; push; full; stop }
+
   module Syntax = struct
     let ( let* ) x fn = flat_map fn x
     let ( let+ ) x fn = map fn x
@@ -550,6 +559,16 @@ module Flow = struct
     in
     { flow }
 
+  let take n =
+    let flow (Sink k) =
+      let init () = (k.init (), 0)
+      and push (acc, idx) x = (k.push acc x, succ idx)
+      and full (acc, idx) = k.full acc || idx = n
+      and stop (acc, _) = k.stop acc in
+      Sink { init; push; full; stop }
+    in
+    { flow }
+
   let transfer bqueue push acc =
     let rec go acc () =
       match Bqueue.get bqueue with None -> acc | Some a -> go (push acc a) ()
@@ -559,6 +578,13 @@ module Flow = struct
   let filter fn =
     let flow (Sink k) =
       let push r x = if fn x then k.push r x else r in
+      Sink { k with push }
+    in
+    { flow }
+
+  let filter_map fn =
+    let flow (Sink k) =
+      let push r x = match fn x with Some x -> k.push r x | None -> r in
       Sink { k with push }
     in
     { flow }
@@ -726,4 +752,9 @@ module Stream = struct
       t.stream (Sink { k with push })
     in
     { stream }
+
+  let unfold s0 pull = from (Source.unfold s0 pull)
+  let tap fn t = via (Flow.tap fn) t
+  let filter_map fn t = via (Flow.filter_map fn) t
+  let take n t = via (Flow.take n) t
 end

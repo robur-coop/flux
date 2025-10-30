@@ -36,15 +36,4 @@
 
 (executable
  (name fetch)
- (libraries
-  httpcats
-  mirage-crypto-rng-miou-unix
-  fmt
-  miou.unix
-  progress
-  flux))
-
-(rule
-  (alias fetch)
-  (deps (:fetch fetch.exe))
-  (action (run %{fetch} -o index.tar.gz https://opam.ocaml.org)))
+ (libraries httpcats mirage-crypto-rng-miou-unix fmt miou.unix progress flux))

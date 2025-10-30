@@ -77,13 +77,6 @@ module Source : sig
       {b NOTE}: [`Halt] a bounded-queue created with {!val:Bqueue.with_close}
       also closes the given bounded-queue. *)
 
-  val map : ('a -> 'b) -> 'a source -> 'b source
-  (** A source with all elements transformed with a mapping function. *)
-
-  val each : ('a -> unit) -> 'a source -> unit
-  (** [each fn src] applies an effectful function [fn] to all elements in [src].
-  *)
-
   val file : filename:string -> int -> string source
   (** [file ~filename len] reads at most [len] bytes of the file [filename]
       until the end. *)
@@ -93,7 +86,20 @@ module Source : sig
       the given [ic] is not {!val:stdin} and [?close] is [true] (by default),
       {!val:dispose} closes it properly. *)
 
+  (** {2 Transforming a source.}
+
+      {b NOTE}: Instead ofapplying the transformation functions at the source,
+      consider using {!val:Stream.from} or defining your computation as a
+      {!type:flow} to make it reusable. *)
+
+  val map : ('a -> 'b) -> 'a source -> 'b source
+  (** A source with all elements transformed with a mapping function. *)
+
   (** {2 Consuming a source.} *)
+
+  val each : ('a -> unit) -> 'a source -> unit
+  (** [each fn src] applies an effectful function [fn] to all elements in [src].
+  *)
 
   val next : 'a source -> ('a * 'a source) option
   (** [next src] is [Some (x, rest)] where [x] is the first element of [src] and
@@ -191,6 +197,33 @@ type ('a, 'r) sink =
           produce a value of type ['b]. *)
 
 module Sink : sig
+  val fold : ('r -> 'a -> 'r) -> 'r -> ('a, 'r) sink
+  (** [fold fn init] is a sink that reduces all input elements with the stepping
+      function [fn] starting with the accumulator value [init]. *)
+
+  (** {2 Basic sinks.} *)
+
+  val full : ('a, unit) sink
+  (** A full sink taht will not consume any input and will not produce any
+      results. *)
+
+  val is_full : ('a, 'r) sink -> bool
+  (** [is_full sink] is [true] if [sink] is full. Full sinks do not consume any
+      elements but will be initialized to determine if they are full. *)
+
+  val is_empty : ('a, bool) sink
+  (** [is_empty] is a sink that produces [true] when it is stopped without
+      consuming any elements. *)
+
+  val length : ('a, int) sink
+  (** Consumes and counts all input elements. *)
+
+  val drain : ('a, unit) sink
+  (** Consumes all elements producing nothing. Useful for triggering actions in
+      effectful streams. *)
+
+  (** {2 Data sinks.} *)
+
   val string : (string, string) sink
   (** Consumes and concatenates bytes. *)
 
@@ -206,20 +239,11 @@ module Sink : sig
   val buffer : int -> ('a, 'a array) sink
   (** Similar to {!val:array} but will only consume [n] elements. *)
 
-  val length : ('a, int) sink
-  (** Consumes and counts all input elements. *)
-
   val fill : 'r -> ('a, 'r) sink
   (** [fill x] uses [x] to fill the sink. This sink will not consume any input
       and will immediately produce [x] when used. *)
 
-  val full : ('a, unit) sink
-  (** A full sink taht will not consume any input and will not produce any
-      results. *)
-
-  val drain : ('a, unit) sink
-  (** Consumes all elements producing nothing. Useful for triggering actions in
-      effectful streams. *)
+  (** {2 Combining sinks.} *)
 
   val zip : ('a, 'r0) sink -> ('a, 'r1) sink -> ('a, 'r0 * 'r1) sink
   (** [zip l r] computes both [l] and [r] cooperatively with the same input
@@ -261,6 +285,11 @@ module Sink : sig
       these actions terminates abnormally, the execution of the returned
       {i sink} raises an exception. *)
 
+  val premap : ('b -> 'a) -> ('a, 'r) sink -> ('b, 'r) sink
+  (** [premap fn sink] is a sink that {e premaps} the input value. *)
+
+  (** {2 I/O sinks.} *)
+
   val file : filename:string -> (string, unit) sink
   (** [file ~filename] saves string elements into the given file [filename]. *)
 
@@ -268,13 +297,6 @@ module Sink : sig
   (** [out_channel ?close oc] saves string elements into the given out channel
       [oc]. If [oc] is not {!val:stdout} and [?close] is [true] (by default),
       [out_channel] will close it at the end. *)
-
-  val fold : ('r -> 'a -> 'r) -> 'r -> ('a, 'r) sink
-  (** [fold fn init] is a sink that reduces all input elements with the stepping
-      function [fn] starting with the accumulator value [init]. *)
-
-  val premap : ('b -> 'a) -> ('a, 'r) sink -> ('b, 'r) sink
-  (** [premap fn sink] is a sink that {e premaps} the input value. *)
 
   module Syntax : sig
     val ( let* ) : ('a, 'r0) sink -> ('r0 -> ('a, 'r1) sink) -> ('a, 'r1) sink
@@ -331,26 +353,26 @@ type bstr =
   (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t
 
 module Flow : sig
+  (** {2 Transforming a flow.} *)
+
   val identity : ('a, 'a) flow
   (** A neutral flow that does not change the elements. *)
-
-  val tap : ('a -> unit) -> ('a, 'a) flow
-  (** A flow with all elements passed through an effectful function. *)
-
-  val filter : ('a -> bool) -> ('a, 'a) flow
-  (** A flow that includes only elements that satisfy a predicate. *)
 
   val map : ('a -> 'b) -> ('a, 'b) flow
   (** A flow with all elements transformed with a mapping function. *)
 
-  val compose : ('a, 'b) flow -> ('b, 'c) flow -> ('a, 'c) flow
-  (** Compose two flows to form a new flow. *)
+  val tap : ('a -> unit) -> ('a, 'a) flow
+  (** A flow with all elements passed through an effectful function. *)
 
-  val ( >> ) : ('a, 'b) flow -> ('c, 'a) flow -> ('c, 'b) flow
-  (** [f1 << f2] is [compose f1 f2]. *)
+  val take : int -> ('a, 'a) flow
+  (** Take first [n] elements from the source and discard the rest. *)
 
-  val ( << ) : ('a, 'b) flow -> ('b, 'c) flow -> ('a, 'c) flow
-  (** [f1 >> f2] is [compose f2 f1]. *)
+  val filter : ('a -> bool) -> ('a, 'a) flow
+  (** A flow that includes only elements that satisfy a predicate. *)
+
+  val filter_map : ('a -> 'b option) -> ('a, 'b) flow
+  (** [filter_map fn] applies [fn] to element, discarding it if [fn x] produces
+      [None], and keeping the transformed value otherwise. *)
 
   val bound : int -> ('a, 'a) flow
   (** [bounds] limits the consumption of an infinite source to a source with
@@ -374,6 +396,17 @@ module Flow : sig
       {b NOTE}: the consumer must immediately consume, in one way or another,
       the given bigarray. [bstr] {b reuses} this same bigarray (and does not
       allocate a new one) to refill it with the incoming strings. *)
+
+  (** {2 Composing flows.} *)
+
+  val compose : ('a, 'b) flow -> ('b, 'c) flow -> ('a, 'c) flow
+  (** Compose two flows to form a new flow. *)
+
+  val ( >> ) : ('a, 'b) flow -> ('c, 'a) flow -> ('c, 'b) flow
+  (** [f1 << f2] is [compose f1 f2]. *)
+
+  val ( << ) : ('a, 'b) flow -> ('b, 'c) flow -> ('a, 'c) flow
+  (** [f1 >> f2] is [compose f2 f1]. *)
 end
 
 (** {1:streams Streams.}
@@ -399,6 +432,75 @@ type 'a stream = { stream: 'r. ('a, 'r) sink -> 'r } [@@unboxed]
 (** Type for streams with elements of type ['a]. *)
 
 module Stream : sig
+  (** {2 Creating streams.} *)
+
+  val empty : 'a stream
+  (** Empty stream with no elements. *)
+
+  val range : ?by:int -> int -> int -> int stream
+  (** [range ~by:step n m] is a sequence of integers starting from [n] to [m]
+      (excluding [m]) incremented by [step]. The range is pen on the right side.
+  *)
+
+  val repeat : ?times:int -> 'a -> 'a stream
+  (** [repeat ~times:n x] produces a stream by repeating [x] [n] times. If [n]
+      is omitted, [x] is repeated {e ad infinitum}. *)
+
+  val unfold : 's -> ('s -> ('a * 's) option) -> 'a stream
+  (** [unfold seed next] is a stream created from a [seed] state and a function
+      that produces elements and an updated state. The stream will terminate
+      when [next] produces [None]. *)
+
+  (** {2 Transforming a stream.} *)
+
+  val map : ('a -> 'b) -> 'a stream -> 'b stream
+  (** A stream with all elements transformed with a mapping function. *)
+
+  val tap : ('a -> unit) -> 'a stream -> 'a stream
+  (** Pass each element through an effectful function. *)
+
+  val take : int -> 'a stream -> 'a stream
+  (** Take first [n] elements from the stream and discard the rest. *)
+
+  val filter : ('a -> bool) -> 'a stream -> 'a stream
+  (** A stream that includes only the elements that satisfy a predicate. *)
+
+  val filter_map : ('a -> 'b option) -> 'a stream -> 'b stream
+  (** [filter_map fn src] applies [fn] to every element [x] of source,
+      discarding it if [fn x] produces [None], and keeping the transformed value
+      otherwise. *)
+
+  (** {2 Combining streams.} *)
+
+  val interpose : 'a -> 'a stream -> 'a stream
+  (** Inserts a separator element between each stream element. *)
+
+  val flat_map : ('a -> 'b stream) -> 'a stream -> 'b stream
+  (** [flat_map fn stream] is a stream concatenated from sub-streams produced by
+      applying [fn] to all elements of [stream]. *)
+
+  (** {2 Consumers.} *)
+
+  val drain : 'a stream -> unit
+  (** Consume and discard all elements from the given stream. *)
+
+  val each : ?parallel:bool -> ('a -> unit) -> 'a stream -> unit
+  (** [each fn stream] applies an function [fn] to all elements of stream. Each
+      function is performed cooperatively via the Miou scheduler. *)
+
+  (** {2 Adaptors.} *)
+
+  val into : ('a, 'b) sink -> 'a stream -> 'b
+  (** [into sink stream] is the result value produced by streaming all elements
+      of [stream] into [sink]. *)
+
+  val via : ('a, 'b) flow -> 'a stream -> 'b stream
+  (** [via flow stream] is stream produced by transforming all elements of
+      [stream] via [flow]. *)
+
+  val from : 'a source -> 'a stream
+  (** [from source] is a stream created from a source. *)
+
   val run :
        from:'a source
     -> via:('a, 'b) flow
@@ -418,50 +520,9 @@ module Stream : sig
       consume it or manually {{!val:Source.dispose} dispose} its resources. Not
       doing so might lead to resource leaks. *)
 
-  val into : ('a, 'b) sink -> 'a stream -> 'b
-  (** [into sink stream] is the result value produced by streaming all elements
-      of [stream] into [sink]. *)
-
-  val via : ('a, 'b) flow -> 'a stream -> 'b stream
-  (** [via flow stream] is stream produced by transforming all elements of
-      [stream] via [flow]. *)
-
-  val from : 'a source -> 'a stream
-  (** [from source] is a stream created from a source. *)
-
-  val map : ('a -> 'b) -> 'a stream -> 'b stream
-  (** A stream with all elements transformed with a mapping function. *)
-
-  val flat_map : ('a -> 'b stream) -> 'a stream -> 'b stream
-  (** [flat_map fn stream] is a stream concatenated from sub-streams produced by
-      applying [fn] to all elements of [stream]. *)
-
-  val filter : ('a -> bool) -> 'a stream -> 'a stream
-  (** A stream that includes only the elements that satisfy a predicate. *)
+  (** I/O Streams. *)
 
   val file : filename:string -> string stream -> unit
   (** [file filename stream] writes bytes from [stream] into the file located at
       [filename]. *)
-
-  val drain : 'a stream -> unit
-  (** Consume and discard all elements from the given stream. *)
-
-  val interpose : 'a -> 'a stream -> 'a stream
-  (** Inserts a separator element between each stream element. *)
-
-  val each : ?parallel:bool -> ('a -> unit) -> 'a stream -> unit
-  (** [each fn stream] applies an function [fn] to all elements of stream. Each
-      function is performed cooperatively via the Miou scheduler. *)
-
-  val empty : 'a stream
-  (** Empty stream with no elements. *)
-
-  val range : ?by:int -> int -> int -> int stream
-  (** [range ~by:step n m] is a sequence of integers starting from [n] to [m]
-      (excluding [m]) incremented by [step]. The range is pen on the right side.
-  *)
-
-  val repeat : ?times:int -> 'a -> 'a stream
-  (** [repeat ~times:n x] produces a stream by repeating [x] [n] times. If [n]
-      is omitted, [x] is repeated {e ad infinitum}. *)
 end

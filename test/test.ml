@@ -48,7 +48,16 @@ let basic04 =
   let () = Stream.into Sink.drain stream in
   Alcotest.(check int) "[0..10[ -> unit" !n 10
 
+let basic05 =
+  Alcotest.test_case "basic05" `Quick @@ fun () ->
+  let open Flux in
+  let sum = Sink.fold Int.add 0 in
+  let res = Stream.into sum Stream.empty in
+  Alcotest.(check int) "empty -> 0" res 0;
+  let res = Stream.into sum Stream.(range 0 10) in
+  Alcotest.(check int) "[0..10[ -> 45" res 45
+
 let () =
   Miou_unix.run @@ fun () ->
   Alcotest.run "test"
-    [ ("basics", [ basic00; basic01; basic02; basic03; basic04 ]) ]
+    [ ("basics", [ basic00; basic01; basic02; basic03; basic04; basic05 ]) ]
