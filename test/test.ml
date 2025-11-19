@@ -57,7 +57,36 @@ let basic05 =
   let res = Stream.into sum Stream.(range 0 10) in
   Alcotest.(check int) "[0..10[ -> 45" res 45
 
+let miou00 =
+  Alcotest.test_case "miou00" `Quick @@ fun () ->
+  let open Flux in
+  let from =
+    Source.with_task ~size:0x7ff @@ fun q ->
+    let lst = List.init 10 Fun.id in
+    let fn = Bqueue.put q in
+    List.iter fn lst; Bqueue.close q
+  in
+  let stream = Stream.from from in
+  let lst = Stream.into Sink.list stream in
+  Alcotest.(check (list int)) "[0..10[" lst (List.init 10 Fun.id)
+
+let miou01 =
+  Alcotest.test_case "miou01" `Quick @@ fun () ->
+  let open Flux in
+  let from =
+    Source.with_task ~size:0x7ff @@ fun q ->
+    let lst = List.init 10 Fun.id in
+    let fn = Bqueue.put q in
+    List.iter fn lst
+  in
+  let stream = Stream.from from in
+  let lst = Stream.into Sink.list stream in
+  Alcotest.(check (list int)) "[0..10[" lst (List.init 10 Fun.id)
+
 let () =
   Miou_unix.run @@ fun () ->
   Alcotest.run "test"
-    [ ("basics", [ basic00; basic01; basic02; basic03; basic04; basic05 ]) ]
+    [
+      ("basics", [ basic00; basic01; basic02; basic03; basic04; basic05 ])
+    ; ("miou", [ miou00; miou01 ])
+    ]

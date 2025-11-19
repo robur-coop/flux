@@ -106,7 +106,8 @@ module Source = struct
         if parallel then Miou.call ~give fn else Miou.async ~give fn
       in
       spawn ~give:[ res ] @@ fun () -> fn bqueue; Miou.Ownership.release res
-    and pull prm = match Option.map (fun a -> (a, prm)) (Bqueue.get bqueue) with
+    and pull prm =
+      match Option.map (fun a -> (a, prm)) (Bqueue.get bqueue) with
       | None -> Miou.await_exn prm; None
       | Some _ as prm -> prm
     (* NOTE(dinosaure): A task that has completed successfully can be cancelled.
