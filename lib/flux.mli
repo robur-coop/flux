@@ -145,8 +145,11 @@ module Source : sig
 
       The source is not effective and may potentially block if the shared queue
       is empty and an attempt is made to consume it (via {!val:next}, for
-      example). The shared queue is automatically closed/halted (depending on
-      [?halt], defaults to [false]) as soon as the producer terminates.
+      example). The shared queue is closed/halted (depending on [?halt],
+      defaults to [false]) {b only on abnormal} situation (and the task is
+      cancelled by the scheduler or if an exception was raised by [producer]).
+      The user must close the given queue to emit the signal to other tasks that
+      the queue has been closed.
 
       For more details on the difference between [halt] and [close], please
       refer to the {!module:Bqueue} module. *)
