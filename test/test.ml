@@ -72,16 +72,19 @@ let miou00 =
 
 let miou01 =
   Alcotest.test_case "miou01" `Quick @@ fun () ->
+  let exception Foo in
   let open Flux in
   let from =
     Source.with_task ~size:0x7ff @@ fun q ->
     let lst = List.init 10 Fun.id in
     let fn = Bqueue.put q in
-    List.iter fn lst
+    List.iter fn lst; raise Foo
   in
   let stream = Stream.from from in
-  let lst = Stream.into Sink.list stream in
-  Alcotest.(check (list int)) "[0..10[" lst (List.init 10 Fun.id)
+  try
+    ignore (Stream.into Sink.list stream);
+    Alcotest.failf "The task should not terminate correctly"
+  with Foo -> Alcotest.(check pass) "foo" () ()
 
 let () =
   Miou_unix.run @@ fun () ->
