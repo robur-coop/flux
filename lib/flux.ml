@@ -121,7 +121,8 @@ module Source = struct
   let with_formatter ?halt ~size fn =
     with_task ?halt ~size @@ fun q ->
     let out str off len = Bqueue.put q (String.sub str off len) in
-    fn (Format.make_formatter out ignore)
+    fn (Format.make_formatter out ignore);
+    Bqueue.close q
 
   let each fn (Source src) =
     let rec go acc =
