@@ -37,3 +37,7 @@
 (executable
  (name fetch)
  (libraries httpcats mirage-crypto-rng-miou-unix fmt miou.unix progress flux))
+
+(executable
+ (name zip)
+ (libraries ptime.clock.os fluxt.zip))
