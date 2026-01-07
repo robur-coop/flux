@@ -58,8 +58,6 @@ let deflate ~level from into =
       in
       let acc, src = Flux.Stream.run ~from ~via ~into in
       Option.iter Flux.Source.dispose src;
-      Format.eprintf ">>> csz: %Ld\n%!" !csz;
-      Format.eprintf ">>> usz: %Ld\n%!" !usz;
       (acc, !crc32, !csz, !usz)
 
 type cdfh = {
@@ -143,7 +141,6 @@ let zip =
     let full = function Ok (acc, _, _) | Error (`Full acc) -> k.full acc in
     let stop state =
       let close (acc, entries, start_cd) =
-        Format.eprintf ">>> start_cd: %Lx\n%!" start_cd;
         let entries = rev_uniq entries in
         let rec go acc start_ecd = function
           | [] -> Ok (acc, start_ecd)
@@ -197,7 +194,6 @@ let zip =
         Bytes.set_int64_le buf 48 start_cd;
         Bytes.set_int32_le buf 56 0x07064b50l;
         Bytes.set_int32_le buf 60 0l;
-        Format.eprintf ">>> start_ecd: %Lx\n%!" start_ecd;
         Bytes.set_int64_le buf 64 start_ecd;
         Bytes.set_int32_le buf 72 0l;
         Bytes.set_int32_le buf 76 0x06054b50l;
