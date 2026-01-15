@@ -17,6 +17,18 @@
  (libraries bstr decompress.zl flux))
 
 (library
+ (name flux_de)
+ (modules flux_de)
+ (public_name fluxt.de)
+ (libraries bstr decompress.de flux))
+
+(library
+ (name flux_zip)
+ (modules flux_zip)
+ (public_name fluxt.zip)
+ (libraries ptime fluxt.de))
+
+(library
  (name flux_tar)
  (modules flux_tar)
  (public_name fluxt.tar)

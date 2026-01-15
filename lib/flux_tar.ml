@@ -54,11 +54,6 @@ let is_enough buf hdr =
   let len = Int64.to_int hdr.Tar.Header.file_size in
   Buf.max buf >= len
 
-let _pp ppf = function
-  | Ok _ -> Format.fprintf ppf "<Ok>"
-  | Error `Eof -> Format.fprintf ppf "<Eof>"
-  | Error (`Fatal _) -> Format.fprintf ppf "<Fatal>"
-
 let untar =
   let open Flux in
   let flow (Sink k) =
@@ -71,7 +66,6 @@ let untar =
           unfold acc buf (Ok (tar, None, None))
       | Ok (tar, Some (`Header hdr), _) when is_enough buf hdr ->
           let len = Int64.to_int hdr.Tar.Header.file_size in
-          (* Format.eprintf "[+] %s (%d byte(s))\n%!" hdr.Tar.Header.file_name len; *)
           let contents = Result.get_ok (Buf.get buf len) in
           let acc = k.push acc (hdr, contents) in
           if k.full acc then (acc, buf, Error `Eof)
@@ -81,9 +75,7 @@ let untar =
       | Ok (tar, None, _) when Buf.max buf >= Tar.Header.length ->
           let data = Result.get_ok (Buf.get buf Tar.Header.length) in
           unfold acc buf (Tar.decode tar data)
-      | state ->
-          (* Format.eprintf "[+] stop with: %a\n%!" pp state; *)
-          (acc, buf, state)
+      | state -> (acc, buf, state)
     in
     let rec finalise acc buf = function
       | Ok (tar, Some (`Read req), _) when Buf.max buf >= req ->
@@ -94,7 +86,6 @@ let untar =
           finalise acc buf (Ok (tar, None, None))
       | Ok (tar, Some (`Header hdr), _) when is_enough buf hdr ->
           let len = Int64.to_int hdr.Tar.Header.file_size in
-          (* Format.eprintf "[+] %s (%d byte(s))\n%!" hdr.Tar.Header.file_name len; *)
           let contents = Result.get_ok (Buf.get buf len) in
           let acc = k.push acc (hdr, contents) in
           if k.full acc then k.stop acc
