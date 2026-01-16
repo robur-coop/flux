@@ -27,7 +27,7 @@ module Ke = struct
         let tmp = Bytes.create pre in
         Bstr.blit_to_bytes t.bstr ~src_off:mask tmp ~dst_off:0 ~len:pre;
         Bstr.blit t.bstr ~src_off:0 t.bstr ~dst_off:pre ~len:rem;
-        Bstr.blit_from_bytes tmp ~src_off:0 t.bstr ~dst_off:mask ~len:pre
+        Bstr.blit_from_bytes tmp ~src_off:0 t.bstr ~dst_off:0 ~len:pre
       end
     else Bstr.blit t.bstr ~src_off:mask t.bstr ~dst_off:0 ~len;
     t.rd <- 0;
@@ -82,9 +82,9 @@ module Ke = struct
         let pre = t.ln - mask in
         let rem = len - pre in
         if rem > 0 then
-          [
-            Bstr.sub t.bstr ~off:mask ~len:pre; Bstr.sub t.bstr ~off:0 ~len:rem
-          ]
+          let a = Bstr.sub t.bstr ~off:mask ~len:pre in
+          let b = Bstr.sub t.bstr ~off:0 ~len:rem in
+          [ a; b ]
         else [ Bstr.sub t.bstr ~off:mask ~len ]
 end
 
@@ -104,18 +104,22 @@ let close ke = function
   | Fail _ as state -> state
   | Partial { committed= _; continue } when Ke.length ke = 0 ->
       continue Bstr.empty ~off:0 ~len:0 Complete
-  | Partial { committed; continue } ->
+  | Partial { committed; continue } -> begin
       Ke.shift ke committed;
       Ke.compress ke;
-      let chunk = List.hd (Ke.peek ke) in
-      continue chunk ~off:0 ~len:(Bstr.length chunk) Complete
+      match Ke.peek ke with
+      | [] -> continue Bstr.empty ~off:0 ~len:0 Complete
+      | chunk :: _ -> continue chunk ~off:0 ~len:(Bstr.length chunk) Complete
+    end
 
 let parser p =
   let open Angstrom.Unbuffered in
-  let init () = (Ke.unsafe_create 0x100, parse p)
-  and push (ke, state) str =
-    let state = push ke str state in
-    (ke, state)
+  let init () = (Ke.unsafe_create 0x10000, parse p)
+  and push (ke, state) = function
+    | "" -> (ke, state)
+    | str ->
+        let state = push ke str state in
+        (ke, state)
   and full (_, state) =
     match state with Done _ | Fail _ -> true | Partial _ -> false
   and stop (ke, state) =
