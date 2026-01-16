@@ -40,6 +40,12 @@
  (public_name fluxt.hash)
  (libraries digestif flux))
 
+(library
+ (name flux_angstrom)
+ (modules flux_angstrom)
+ (public_name fluxt.angstrom)
+ (libraries angstrom bstr flux))
+
 (documentation
  (package flux)
  (mld_files flux))
