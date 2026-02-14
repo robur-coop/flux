@@ -272,3 +272,5 @@ val iter : ('a -> unit) -> ('a, 'r) t -> unit
 
 val of_list : 'a list -> ('a, 'a option) t
 val single : 'a -> ('a, 'a option) t
+val closed : ('a, 'r) t -> bool
+val to_seq : ('a, 'r) t -> 'a Seq.t
