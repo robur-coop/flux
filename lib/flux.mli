@@ -236,6 +236,11 @@ module Sink : sig
   val seq : 'a Seq.t -> ('a, 'a Seq.t) sink
   (** [seq s] puts all input elements into the given [s]. *)
 
+  val bqueue : size:int -> ('a, unit) sink * ('a, 'a option) Bqueue.t
+  (** [bqueue ~size] returns a {!type:sink} which fills the returned
+      bounded-queue. The queue can be consumed by something else cooperatively
+      (or in parallel). *)
+
   val array : ('a, 'a array) sink
   (** Puts all input elements into an array. *)
 

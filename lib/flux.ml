@@ -219,6 +219,14 @@ module Sink = struct
     let stop = Fun.id in
     Sink { init; push; full; stop }
 
+  let bqueue ~size =
+    let queue = Bqueue.(create with_close size) in
+    let init = Fun.const queue
+    and push q x = Bqueue.put q x; q
+    and full = Bqueue.closed
+    and stop = Bqueue.close in
+    (Sink { init; push; full; stop }, queue)
+
   let buffer len =
     if len < 0 then invalid_arg "Flux.Sink.buffer: negative buffer size";
     if len = 0 then fill [||]
@@ -643,7 +651,7 @@ module Stream = struct
     | true ->
         let r' = snk.stop r0 in
         (r', Some (Source src))
-    | false -> (
+    | false -> begin
         let s0' = ref None in
         try
           let s0 = src.init () in
@@ -652,7 +660,8 @@ module Stream = struct
         with exn ->
           Option.iter src.stop !s0';
           let _ = snk.stop r0 in
-          reraise exn)
+          reraise exn
+      end
 
   let into sink t = t.stream sink
 

@@ -96,6 +96,13 @@ let get_from_closeable : type a. (a, a option) t -> close -> a option =
 let[@inline always] not_closed_or_halted m =
   not (Atomic.get m.closed || Atomic.get m.halted)
 
+let closed : type a r. (a, r) t -> bool =
+ fun t ->
+  match t.k with
+  | Infinite -> false
+  | With_close m -> Atomic.get m.closed
+  | With_close_and_halt m -> Atomic.get m.halted || Atomic.get m.closed
+
 let get_from_closeable_or_haltable : type a.
     (a, a option) t -> close_and_halt -> a option =
  fun t m ->
@@ -163,6 +170,13 @@ let of_list vs =
   List.iter (put stream) vs;
   close stream;
   stream
+
+let to_seq : type a r. (a, r) t -> a Seq.t =
+ fun t ->
+  match t.k with
+  | Infinite -> Seq.forever (fun () -> get t)
+  | With_close _ -> Seq.of_dispenser (fun () -> get t)
+  | With_close_and_halt _ -> Seq.of_dispenser (fun () -> get t)
 
 let single v =
   let stream = create with_close 2 in
