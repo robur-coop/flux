@@ -706,6 +706,16 @@ module Stream = struct
     let stream (Sink k) = k.stop (k.init ()) in
     { stream }
 
+  let concat a b =
+    let stream (Sink k) =
+      let stop r =
+        if k.full r then k.stop r
+        else b.stream (Sink { k with init= Fun.const r })
+      in
+      a.stream (Sink { k with stop })
+    in
+    { stream }
+
   let each ?parallel fn t =
     into (Sink.each ?parallel ~init:() ~merge:Fun.const fn) t
 

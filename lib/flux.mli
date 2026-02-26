@@ -459,6 +459,10 @@ module Stream : sig
       that produces elements and an updated state. The stream will terminate
       when [next] produces [None]. *)
 
+  val concat : 'a stream -> 'a stream -> 'a stream
+  (** [concat s0 s1] is a stream that exhausts all elements from [s0] and then
+      all elements from [s1]. *)
+
   (** {2 Transforming a stream.} *)
 
   val map : ('a -> 'b) -> 'a stream -> 'b stream
