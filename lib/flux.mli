@@ -159,6 +159,15 @@ module Source : sig
   (** [with_formatter ?halt ~size producer] is a specialisation of
       {!val:with_task} with a [Format.formatter]. Everything written in the
       formatter is transmitted to the consumer. *)
+
+  val with_buffered_formatter :
+    ?halt:bool -> size:int -> buffer_size:int -> (Format.formatter -> unit) -> string source
+  (** [with_buffered_formatter ?halt ~size ~buffer_size producer] is like
+      [with_formatter ?halt ~size producer] except the output is buffered
+      respecting flushing by the formatter. All outputs are at least
+      [buffer_size] long except if [Format.pp_print_flush] is called earlier.
+  *)
+
 end
 
 (** {1:sinks Sinks.}
