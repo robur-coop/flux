@@ -669,11 +669,12 @@ module Stream = struct
     let stream sink = into (flow sink) t in
     { stream }
 
-  let from (Source src) =
+  let from ?(dispose_if_full= true) (Source src) =
     let stream (Sink k) =
       let rec go r s =
         let is_full = k.full r in
-        if is_full then k.stop r
+        if is_full && dispose_if_full then begin src.stop s; k.stop r end
+        else if is_full then k.stop r
         else
           match src.pull s with
           | None -> src.stop s; k.stop r
