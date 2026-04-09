@@ -684,6 +684,8 @@ module Stream = struct
       in
       let r0 = k.init () in
       let is_full = k.full r0 in
+      (* NOTE(dinosaure): here, we did not yet allocate [src], so we don't need
+         to dispose it if [k] is full. *)
       if is_full then k.stop r0
       else
         let s0' = ref None in
