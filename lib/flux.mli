@@ -216,7 +216,7 @@ module Sink : sig
   (** {2 Basic sinks.} *)
 
   val full : ('a, unit) sink
-  (** A full sink taht will not consume any input and will not produce any
+  (** A full sink that will not consume any input and will not produce any
       results. *)
 
   val is_full : ('a, 'r) sink -> bool
