@@ -124,6 +124,26 @@ module Source = struct
     fn (Format.make_formatter out ignore);
     Bqueue.close q
 
+  let with_buffered_formatter ?halt ~size ~buffer_size fn =
+    with_task ?halt ~size @@ fun q ->
+    let buf = Buffer.create buffer_size in
+    let flush () =
+      if Buffer.length buf > 0 then
+        let s = Buffer.contents buf in
+        Buffer.clear buf;
+        Bqueue.put q s
+    in
+    let out str off len =
+      if Buffer.length buf = 0 && len >= buffer_size then
+        Bqueue.put q (String.sub str off len)
+      else
+        Buffer.add_substring buf str off len;
+      if Buffer.length buf >= buffer_size then
+        flush ()
+    in
+    fn (Format.make_formatter out flush);
+    Bqueue.close q
+
   let each fn (Source src) =
     let rec go acc =
       match src.pull acc with
