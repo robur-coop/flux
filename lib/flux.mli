@@ -519,8 +519,11 @@ module Stream : sig
   (** [via flow stream] is stream produced by transforming all elements of
       [stream] via [flow]. *)
 
-  val from : 'a source -> 'a stream
-  (** [from source] is a stream created from a source. *)
+  val from : ?dispose_if_full:bool -> 'a source -> 'a stream
+  (** [from source] is a stream created from a source. To retain control over
+      the given src resource, by default, if the stream has {i fully filled} the
+      result, the [source] is properly disposed of (i.e. its [stop] function is
+      called correctly). *)
 
   val run :
        from:'a source

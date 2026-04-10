@@ -86,10 +86,27 @@ let miou01 =
     Alcotest.failf "The task should not terminate correctly"
   with Foo -> Alcotest.(check pass) "foo" () ()
 
+let miou02 =
+  Alcotest.test_case "miou02" `Quick @@ fun () ->
+  let open Flux in
+  (* An infinite queue and we would like to allocate, consume some,
+     and properly clean-up everything. *)
+  let v = Atomic.make false in
+  let from = 
+    Source.with_task ~size:0x7ff @@ fun q ->
+    let finally () = assert (Atomic.exchange v true = false) in
+    let r = Miou.Ownership.create ~finally () in
+    Miou.Ownership.own r;
+    while true do Flux.Bqueue.put q () done;
+    Miou.Ownership.release r in
+  let stream = Stream.from from in
+  let _ = Stream.into (Sink.buffer 2) stream in
+  Alcotest.(check bool) "resource" (Atomic.get v) true
+
 let () =
   Miou_unix.run @@ fun () ->
   Alcotest.run "test"
     [
       ("basics", [ basic00; basic01; basic02; basic03; basic04; basic05 ])
-    ; ("miou", [ miou00; miou01 ])
+    ; ("miou", [ miou00; miou01; miou02 ])
     ]
