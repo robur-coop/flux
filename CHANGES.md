@@ -1,3 +1,9 @@
+## v0.0.1~beta4 (2026-04-09)
+
+- Add `Flux.Stream.concat` (@dinosaure, #12)
+- Add `Flux.Source.with_buffered_formatter` (@reynir, #13)
+- Dispose properly a source when we use `Flux.Stream.from` (@dinosaure, spotted by @Josef-Thorne-A, #14)
+
 ## v0.0.1~beta3 (2026-02-17)
 
 - Add `Flux.Sink.bqueue` (@dinosaure, #10)
