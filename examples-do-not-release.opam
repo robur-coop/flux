@@ -1,0 +1,25 @@
+opam-version: "2.0"
+name:          "examples-do-not-release.opam"
+maintainer:    "Romain Calascibetta <romain.calascibetta@gmail.com>"
+authors:
+  [ "Romain Calascibetta <romain.calascibetta@gmail.com>"
+    "Rizo I <rizo@odis.io>" ]
+homepage:     "https://github.com/robur-coop/flux"
+bug-reports:  "https://github.com/robur-coop/flux/issues"
+dev-repo:     "git+https://github.com/robur-coop/flux.git"
+doc:          "https://robur-coop.github.io/flux/"
+license:      "MIT"
+synopsis:     "Examples dependencies - for CI"
+
+build: [ "dune" "build" "-p" name "-j" jobs ]
+run-test: [ "dune" "runtest" "-p" name "-j" jobs ]
+
+depends: [
+  "flux"
+  "digestif"
+  "fmt"
+  "httpcats"
+  "bstr"
+  "miou"
+]
+x-maintenance-intent: [ "(none)" ]
