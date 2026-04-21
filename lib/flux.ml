@@ -141,7 +141,9 @@ module Source = struct
       if Buffer.length buf >= buffer_size then
         flush ()
     in
-    fn (Format.make_formatter out flush);
+    let formatter = Format.make_formatter out flush in
+    fn formatter;
+    Format.pp_print_flush formatter ();
     Bqueue.close q
 
   let each fn (Source src) =
