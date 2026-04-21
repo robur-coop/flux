@@ -1,3 +1,7 @@
+## v0.0.1~beta5 (2026-04-21)
+
+- Fix `Flux.Source.with_buffered_formatter` (@reynir, #16)
+
 ## v0.0.1~beta4 (2026-04-09)
 
 - Add `Flux.Stream.concat` (@dinosaure, #12)
