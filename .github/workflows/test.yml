@@ -18,8 +18,8 @@ jobs:
           opam-local-packages: |
             *.opam
       - name: Install dependencies
-        run: opam install --deps-only -t flux
+        run: opam install --deps-only -t flux fluxt
       - name: Build
-        run: opam exec -- dune build -p flux
+        run: opam exec -- dune build -p flux,fluxt
       - name: Test
-        run: opam exec -- dune runtest -p flux
+        run: opam exec -- dune runtest -p flux,fluxt
