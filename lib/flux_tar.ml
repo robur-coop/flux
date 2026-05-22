@@ -58,11 +58,11 @@ let untar =
   let open Flux in
   let flow (Sink k) =
     let rec unfold acc buf = function
-      | Ok (tar, Some (`Read req), _) when Buf.max buf >= req ->
-          let data = Result.get_ok (Buf.get buf req) in
+      | Ok (tar, Some (`Read req), _) when Int64.of_int max_int < req && Buf.max buf >= Int64.to_int req ->
+          let data = Result.get_ok (Buf.get buf (Int64.to_int req)) in
           unfold acc buf (Tar.decode tar data)
-      | Ok (tar, Some (`Skip rem), _) when Buf.max buf >= rem ->
-          Buf.skip buf rem;
+      | Ok (tar, Some (`Skip rem), _) when Int64.of_int max_int < rem && Buf.max buf >= Int64.to_int rem ->
+          Buf.skip buf (Int64.to_int rem);
           unfold acc buf (Ok (tar, None, None))
       | Ok (tar, Some (`Header hdr), _) when is_enough buf hdr ->
           let len = Int64.to_int hdr.Tar.Header.file_size in
@@ -71,18 +71,18 @@ let untar =
           if k.full acc then (acc, buf, Error `Eof)
           else
             let rem = Tar.Header.compute_zero_padding_length hdr in
-            unfold acc buf (Ok (tar, Some (`Skip rem), None))
+            unfold acc buf (Ok (tar, Some (`Skip (Int64.of_int rem)), None))
       | Ok (tar, None, _) when Buf.max buf >= Tar.Header.length ->
           let data = Result.get_ok (Buf.get buf Tar.Header.length) in
           unfold acc buf (Tar.decode tar data)
       | state -> (acc, buf, state)
     in
     let rec finalise acc buf = function
-      | Ok (tar, Some (`Read req), _) when Buf.max buf >= req ->
-          let data = Result.get_ok (Buf.get buf req) in
+      | Ok (tar, Some (`Read req), _) when Int64.of_int max_int < req && Buf.max buf >= Int64.to_int req ->
+          let data = Result.get_ok (Buf.get buf (Int64.to_int req)) in
           finalise acc buf (Tar.decode tar data)
-      | Ok (tar, Some (`Skip rem), _) when Buf.max buf >= rem ->
-          Buf.skip buf rem;
+      | Ok (tar, Some (`Skip rem), _) when Int64.of_int max_int < rem && Buf.max buf >= Int64.to_int rem ->
+          Buf.skip buf (Int64.to_int rem);
           finalise acc buf (Ok (tar, None, None))
       | Ok (tar, Some (`Header hdr), _) when is_enough buf hdr ->
           let len = Int64.to_int hdr.Tar.Header.file_size in
@@ -91,7 +91,7 @@ let untar =
           if k.full acc then k.stop acc
           else
             let rem = Tar.Header.compute_zero_padding_length hdr in
-            finalise acc buf (Ok (tar, Some (`Skip rem), None))
+            finalise acc buf (Ok (tar, Some (`Skip (Int64.of_int rem)), None))
       | Ok (tar, None, _) when Buf.max buf >= Tar.Header.length ->
           let data = Result.get_ok (Buf.get buf Tar.Header.length) in
           finalise acc buf (Tar.decode tar data)
