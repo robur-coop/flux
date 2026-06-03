@@ -112,9 +112,12 @@ let close ke = function
       | chunk :: _ -> continue chunk ~off:0 ~len:(Bstr.length chunk) Complete
     end
 
-let parser p =
+let pot x = x land (x - 1) == 0 && x != 0
+
+let parser ?(size= 0x100) p =
   let open Angstrom.Unbuffered in
-  let init () = (Ke.unsafe_create 0x10000, parse p)
+  if pot size = false then invalid_arg "Flux_angstrom.parser";
+  let init () = (Ke.unsafe_create size, parse p)
   and push (ke, state) = function
     | "" -> (ke, state)
     | str ->
