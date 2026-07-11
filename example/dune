@@ -41,3 +41,7 @@
 (executable
  (name zip)
  (libraries ptime.clock.os fluxt.zip))
+
+(executable
+ (name unzip)
+ (libraries fluxt.unzip))
