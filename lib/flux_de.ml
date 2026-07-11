@@ -56,8 +56,8 @@ let deflate ~cfg =
           let dynamic = De.Def.dynamic_of_frequencies ~literals ~distances in
           let kind = De.Def.Dynamic dynamic in
           let cb encoder lz77 o = function
-            | `Continue acc -> compress encoder lz77 o acc
-            | `Stop acc -> `Stop acc
+            | `Continue acc when not (k.full acc) -> compress encoder lz77 o acc
+            | `Continue acc | `Stop acc -> `Stop acc
           in
           emit cb encoder lz77 o acc
             (De.Def.encode encoder (`Block { De.Def.kind; last= false }))
@@ -79,8 +79,8 @@ let deflate ~cfg =
           let dynamic = De.Def.dynamic_of_frequencies ~literals ~distances in
           let kind = De.Def.Dynamic dynamic in
           let cb encoder lz77 o = function
-            | `Continue acc -> remaining encoder lz77 o acc
-            | `Stop acc -> acc
+            | `Continue acc when not (k.full acc) -> remaining encoder lz77 o acc
+            | `Continue acc | `Stop acc -> acc
           in
           emit cb encoder lz77 o acc
             (De.Def.encode encoder (`Block { De.Def.kind; last= false }))
