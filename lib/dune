@@ -29,6 +29,12 @@
  (libraries ptime fluxt.de))
 
 (library
+ (name flux_unzip)
+ (modules flux_unzip)
+ (public_name fluxt.unzip)
+ (libraries fmt ptime fluxt.de))
+
+(library
  (name flux_tar)
  (modules flux_tar)
  (public_name fluxt.tar)
