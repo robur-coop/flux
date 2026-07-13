@@ -92,13 +92,16 @@ let miou02 =
   (* An infinite queue and we would like to allocate, consume some,
      and properly clean-up everything. *)
   let v = Atomic.make false in
-  let from = 
+  let from =
     Source.with_task ~size:0x7ff @@ fun q ->
     let finally () = assert (Atomic.exchange v true = false) in
     let r = Miou.Ownership.create ~finally () in
     Miou.Ownership.own r;
-    while true do Flux.Bqueue.put q () done;
-    Miou.Ownership.release r in
+    while true do
+      Flux.Bqueue.put q ()
+    done;
+    Miou.Ownership.release r
+  in
   let stream = Stream.from from in
   let _ = Stream.into (Sink.buffer 2) stream in
   Alcotest.(check bool) "resource" (Atomic.get v) true
@@ -107,23 +110,21 @@ let formatter01 =
   Alcotest.test_case "formatter01" `Quick @@ fun () ->
   let s = "Hello, World!" in
   let src =
-    Flux.Source.with_buffered_formatter ~size:16 ~buffer_size:1024 @@
-    fun ppf ->
+    Flux.Source.with_buffered_formatter ~size:16 ~buffer_size:1024 @@ fun ppf ->
     Format.pp_print_string ppf s
   in
   let called = ref false in
-  Flux.Source.each (fun s' ->
+  Flux.Source.each
+    (fun s' ->
       called := true;
       Alcotest.(check string) "." s s')
     src;
-  if not !called then
-    Alcotest.fail "nothing was flushed"
+  if not !called then Alcotest.fail "nothing was flushed"
 
 let () =
   Miou_unix.run @@ fun () ->
   Alcotest.run "test"
     [
       ("basics", [ basic00; basic01; basic02; basic03; basic04; basic05 ])
-    ; ("formatter", [ formatter01 ])
-    ; ("miou", [ miou00; miou01; miou02 ])
+    ; ("formatter", [ formatter01 ]); ("miou", [ miou00; miou01; miou02 ])
     ]

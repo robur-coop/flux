@@ -114,7 +114,7 @@ let close ke = function
 
 let pot x = x land (x - 1) == 0 && x != 0
 
-let parser ?(size= 0x100) p =
+let parser ?(size = 0x100) p =
   let open Angstrom.Unbuffered in
   if pot size = false then invalid_arg "Flux_angstrom.parser";
   let init () = (Ke.unsafe_create size, parse p)

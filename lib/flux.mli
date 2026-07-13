@@ -161,13 +161,15 @@ module Source : sig
       formatter is transmitted to the consumer. *)
 
   val with_buffered_formatter :
-    ?halt:bool -> size:int -> buffer_size:int -> (Format.formatter -> unit) -> string source
+       ?halt:bool
+    -> size:int
+    -> buffer_size:int
+    -> (Format.formatter -> unit)
+    -> string source
   (** [with_buffered_formatter ?halt ~size ~buffer_size producer] is like
       [with_formatter ?halt ~size producer] except the output is buffered
       respecting flushing by the formatter. All outputs are at least
-      [buffer_size] long except if [Format.pp_print_flush] is called earlier.
-  *)
-
+      [buffer_size] long except if [Format.pp_print_flush] is called earlier. *)
 end
 
 (** {1:sinks Sinks.}
@@ -186,12 +188,12 @@ end
     list:
 
     {[
-      let list =
-        let init () = []
-        and push acc x = x :: acc
-        and stop acc = List.rev acc
-        and full _ = false in
-        Flux.Stream.Sink { init; push; full; stop }
+    let list =
+      let init () = []
+      and push acc x = x :: acc
+      and stop acc = List.rev acc
+      and full _ = false in
+      Flux.Stream.Sink { init; push; full; stop }
     ]}
 
     Sinks are independent from sources and streams. You can think of them as
@@ -533,7 +535,7 @@ module Stream : sig
   (** Fuses sources, sinks and flows and produces a result and a leftover.
 
       {[
-        let r, leftover = Stream.run ~from:source ~via:flow ~into:sink
+      let r, leftover = Stream.run ~from:source ~via:flow ~into:sink
       ]}
 
       Streams elements from [source] into [sink] via a stream transformer

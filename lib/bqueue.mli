@@ -23,27 +23,27 @@
     forever).
 
     {[
-      let daemon () =
-        let q = Flux.Bqueue.(create infinite 0x7ff) in
-        let rec go () =
-          let `Are_you_alive = Flux.Bqueue.get q in
-          print_endline "I'm alive!";
-          go ()
-        in
-        (Miou.call go, q)
+    let daemon () =
+      let q = Flux.Bqueue.(create infinite 0x7ff) in
+      let rec go () =
+        let `Are_you_alive = Flux.Bqueue.get q in
+        print_endline "I'm alive!";
+        go ()
+      in
+      (Miou.call go, q)
 
-      let ( let@ ) finally fn = Fun.protect ~finally fn
+    let ( let@ ) finally fn = Fun.protect ~finally fn
 
-      let () =
-        Miou_unix.run ~domains:1 @@ fun () ->
-        let daemon, q = daemon () in
-        let@ () = fun () -> Miou.cancel daemon in
-        let are_you_alive _ = Flux.Bqueue.put q `Are_you_alive in
-        let behavior = Sys.Signal_handle are_you_alive in
-        ignore (Miou.sys_signal Sys.sigint behavior);
-        while true do
-          Miou_unix.sleep 1.
-        done
+    let () =
+      Miou_unix.run ~domains:1 @@ fun () ->
+      let daemon, q = daemon () in
+      let@ () = fun () -> Miou.cancel daemon in
+      let are_you_alive _ = Flux.Bqueue.put q `Are_you_alive in
+      let behavior = Sys.Signal_handle are_you_alive in
+      ignore (Miou.sys_signal Sys.sigint behavior);
+      while true do
+        Miou_unix.sleep 1.
+      done
     ]}
 
     Thanks to the type system, [Flux.Bqueue.get] only returns values and will
@@ -67,39 +67,39 @@
     This is referred to as a {i closeable} queue.
 
     {[
-      let consumer q max =
-        let counter = ref 0 in
-        Format.printf "%d/%d%!" !counter max;
-        let rec go () =
-          match Flux.Bqueue.get q with
-          | None -> Format.printf "\n%!"
-          | Some bytes ->
-              counter := !counter + bytes;
-              Format.printf "\r%d/%d%!" !counter max;
-              go ()
-        in
-        Miou.async go
+    let consumer q max =
+      let counter = ref 0 in
+      Format.printf "%d/%d%!" !counter max;
+      let rec go () =
+        match Flux.Bqueue.get q with
+        | None -> Format.printf "\n%!"
+        | Some bytes ->
+            counter := !counter + bytes;
+            Format.printf "\r%d/%d%!" !counter max;
+            go ()
+      in
+      Miou.async go
 
-      let producer q ic =
-        let buf = Bytes.create 0x7ff in
-        let rec go () =
-          match input ic buf 0 (Bytes.length buf) with
-          | 0 | (exception End_of_file) -> Flux.Bqueue.close q
-          | len -> Flux.Bqueue.put q len; go ()
-        in
-        Miou.call go
+    let producer q ic =
+      let buf = Bytes.create 0x7ff in
+      let rec go () =
+        match input ic buf 0 (Bytes.length buf) with
+        | 0 | (exception End_of_file) -> Flux.Bqueue.close q
+        | len -> Flux.Bqueue.put q len; go ()
+      in
+      Miou.call go
 
-      let ( let@ ) finally fn = Fun.protect ~finally fn
+    let ( let@ ) finally fn = Fun.protect ~finally fn
 
-      let () =
-        Miou_unix.run ~domains:1 @@ fun () ->
-        let q = FLux.Bqueue.(create with_close 0x7ff) in
-        let ic = open_in Sys.argv.(1) in
-        let@ () = fun () -> close_in ic in
-        let max = in_channel_length ic in
-        let prm0 = consumer q max and prm1 = producer q ic in
-        Miou.await_all [ prm0; prm1 ]
-        |> List.iter (function Ok () -> () | Error exn -> raise exn)
+    let () =
+      Miou_unix.run ~domains:1 @@ fun () ->
+      let q = FLux.Bqueue.(create with_close 0x7ff) in
+      let ic = open_in Sys.argv.(1) in
+      let@ () = fun () -> close_in ic in
+      let max = in_channel_length ic in
+      let prm0 = consumer q max and prm1 = producer q ic in
+      Miou.await_all [ prm0; prm1 ]
+      |> List.iter (function Ok () -> () | Error exn -> raise exn)
     ]}
 
     It is ensured that the consumer (unless cancelled) consumes all the elements
@@ -122,56 +122,56 @@
     the signal that the queue should no longer produce anything.
 
     {[
-      let random q =
-        let ic = open_in "/dev/urandom" in
-        let icr = Miou.Ownership.create ~finally:close_in ic in
-        let qr = Miou.Ownership.create ~finally:Flux.Bqueue.halt q in
-        Miou.Ownership.own icr;
-        Miou.Ownership.own qr;
-        let buf = Bytes.create 0x7ff in
-        let rec go () =
-          match input ic buf 0 (Bytes.length buf) with
-          | 0 | (exception End_of_file) ->
-              Miou.Ownership.release icr;
-              Miou.Ownership.release qr
-          | len ->
-              let str = Bytes.sub_string buf 0 len in
-              Flux.Bqueue.put q str; got ()
-        in
-        Miou.call ~give:[ icr; qr ] go
+    let random q =
+      let ic = open_in "/dev/urandom" in
+      let icr = Miou.Ownership.create ~finally:close_in ic in
+      let qr = Miou.Ownership.create ~finally:Flux.Bqueue.halt q in
+      Miou.Ownership.own icr;
+      Miou.Ownership.own qr;
+      let buf = Bytes.create 0x7ff in
+      let rec go () =
+        match input ic buf 0 (Bytes.length buf) with
+        | 0 | (exception End_of_file) ->
+            Miou.Ownership.release icr;
+            Miou.Ownership.release qr
+        | len ->
+            let str = Bytes.sub_string buf 0 len in
+            Flux.Bqueue.put q str; got ()
+      in
+      Miou.call ~give:[ icr; qr ] go
 
-      let entropy q =
-        let freqs = Array.make 256 0 in
-        let rec go iter () =
-          match Flux.Bqueue.get q with
-          | None ->
-              let total = Array.fold_left Int.add 0 freqs in
-              let total = FLoat.of_int total in
-              let entropy = ref 0. in
-              for byte = 0 to 255 do
-                match freqs.(byte) with
-                | 0 -> ()
-                | n ->
-                    let count = Float.of_int n in
-                    let p = count /. total in
-                    if p >= 0. then entropy := !entropy -. (p *. Float.log2 p)
-              done;
-              (!entropy, iter)
-          | Some str ->
-              let fn chr = freqs.(Char.code chr) <- freqs.(Char.code chr) + 1 in
-              String.iter fn str;
-              go (succ iter) ()
-        in
-        Miou.async (go 0)
+    let entropy q =
+      let freqs = Array.make 256 0 in
+      let rec go iter () =
+        match Flux.Bqueue.get q with
+        | None ->
+            let total = Array.fold_left Int.add 0 freqs in
+            let total = FLoat.of_int total in
+            let entropy = ref 0. in
+            for byte = 0 to 255 do
+              match freqs.(byte) with
+              | 0 -> ()
+              | n ->
+                  let count = Float.of_int n in
+                  let p = count /. total in
+                  if p >= 0. then entropy := !entropy -. (p *. Float.log2 p)
+            done;
+            (!entropy, iter)
+        | Some str ->
+            let fn chr = freqs.(Char.code chr) <- freqs.(Char.code chr) + 1 in
+            String.iter fn str;
+            go (succ iter) ()
+      in
+      Miou.async (go 0)
 
-      let () =
-        Miou_unix.run ~domains:1 @@ fun () ->
-        let q = Flux.Bqueue.(create with_close_and_halt 0x7ff) in
-        let prm0 = random q and prm1 = entropy q in
-        Miou_unix.sleep 1.;
-        Miou.cancel prm0;
-        let entropy, iter = Miou.await_exn prm1 in
-        Format.printf "Entropy %f (%d iteration(s))\n%!" entropy iter
+    let () =
+      Miou_unix.run ~domains:1 @@ fun () ->
+      let q = Flux.Bqueue.(create with_close_and_halt 0x7ff) in
+      let prm0 = random q and prm1 = entropy q in
+      Miou_unix.sleep 1.;
+      Miou.cancel prm0;
+      let entropy, iter = Miou.await_exn prm1 in
+      Format.printf "Entropy %f (%d iteration(s))\n%!" entropy iter
     ]}
 
     In the example above, there is an infinite source of random values. We also

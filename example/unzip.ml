@@ -4,14 +4,13 @@ let archive = ref None
 let output = ref String.empty
 
 let anon str =
-  if Sys.file_exists str && Sys.is_regular_file str
-  then archive := Some str
+  if Sys.file_exists str && Sys.is_regular_file str then archive := Some str
   else Fmt.failwith "%S is not an existing regular archive" str
 
 let usage = Fmt.str "%s [-o directory/] archive.zip" Sys.executable_name
 
 let args =
-  [ "-o", Arg.Set_string output, "Extract files into the given directory" ]
+  [ ("-o", Arg.Set_string output, "Extract files into the given directory") ]
 
 let () =
   Arg.parse args anon usage;
@@ -28,5 +27,6 @@ let () =
         let filename = Filename.concat output entry.Flux_unzip.filepath in
         mkdir_p (Filename.dirname filename) 0o755;
         let into = Flux.Sink.file ~filename in
-        Flux.Stream.into into stream in
+        Flux.Stream.into into stream
+      in
       List.iter fn (Flux_unzip.entries t)

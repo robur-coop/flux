@@ -79,7 +79,8 @@ let deflate ~cfg =
           let dynamic = De.Def.dynamic_of_frequencies ~literals ~distances in
           let kind = De.Def.Dynamic dynamic in
           let cb encoder lz77 o = function
-            | `Continue acc when not (k.full acc) -> remaining encoder lz77 o acc
+            | `Continue acc when not (k.full acc) ->
+                remaining encoder lz77 o acc
             | `Continue acc | `Stop acc -> acc
           in
           emit cb encoder lz77 o acc
@@ -124,32 +125,34 @@ let inflate =
       match De.Inf.decode decoder with
       | `Await -> `Continue (decoder, o, acc)
       | `Flush ->
-        let len = Bstr.length o - De.Inf.dst_rem decoder in
-        let str = Bstr.sub_string o ~off:0 ~len in
-        let acc = k.push acc str in
-        De.Inf.flush decoder;
-        if k.full acc then `Stop acc else until_await_or_end decoder o acc
+          let len = Bstr.length o - De.Inf.dst_rem decoder in
+          let str = Bstr.sub_string o ~off:0 ~len in
+          let acc = k.push acc str in
+          De.Inf.flush decoder;
+          if k.full acc then `Stop acc else until_await_or_end decoder o acc
       | `Malformed _ -> `Stop acc
       | `End ->
-        let len = Bstr.length o - De.Inf.dst_rem decoder in
-        let str = Bstr.sub_string o ~off:0 ~len in
-        let acc = k.push acc str in
-        `Stop acc in
+          let len = Bstr.length o - De.Inf.dst_rem decoder in
+          let str = Bstr.sub_string o ~off:0 ~len in
+          let acc = k.push acc str in
+          `Stop acc
+    in
     let rec until_end decoder o acc =
       assert (not (k.full acc));
       match De.Inf.decode decoder with
       | `Await -> acc
       | `Flush ->
-        let len = Bstr.length o - De.Inf.dst_rem decoder in
-        let str = Bstr.sub_string o ~off:0 ~len in
-        let acc = k.push acc str in
-        De.Inf.flush decoder;
-        if k.full acc then acc else until_end decoder o acc
+          let len = Bstr.length o - De.Inf.dst_rem decoder in
+          let str = Bstr.sub_string o ~off:0 ~len in
+          let acc = k.push acc str in
+          De.Inf.flush decoder;
+          if k.full acc then acc else until_end decoder o acc
       | `Malformed _ -> acc
       | `End ->
-        let len = Bstr.length o - De.Inf.dst_rem decoder in
-        let str = Bstr.sub_string o ~off:0 ~len in
-        k.push acc str in
+          let len = Bstr.length o - De.Inf.dst_rem decoder in
+          let str = Bstr.sub_string o ~off:0 ~len in
+          k.push acc str
+    in
     let init () =
       let o = Bstr.create 0x7ff in
       let w = De.make_window ~bits:15 in
@@ -160,15 +163,17 @@ let inflate =
       match (state, Bstr.length bstr) with
       | _, 0 | `Stop _, _ -> state
       | `Continue (decoder, o, acc), _ ->
-        De.Inf.src decoder bstr 0 (Bstr.length bstr);
-        until_await_or_end decoder o acc
+          De.Inf.src decoder bstr 0 (Bstr.length bstr);
+          until_await_or_end decoder o acc
     and full = function `Continue (_, _, acc) | `Stop acc -> k.full acc
     and stop = function
       | `Stop acc -> k.stop acc
-      | `Continue (decoder, o, acc) when (k.full acc) ->
-        De.Inf.src decoder Bstr.empty 0 0;
-        let acc = until_end decoder o acc in
-        k.stop acc
-      | `Continue (_, _, acc) -> k.stop acc in
-    Sink { init; push; full; stop } in
+      | `Continue (decoder, o, acc) when k.full acc ->
+          De.Inf.src decoder Bstr.empty 0 0;
+          let acc = until_end decoder o acc in
+          k.stop acc
+      | `Continue (_, _, acc) -> k.stop acc
+    in
+    Sink { init; push; full; stop }
+  in
   { flow }

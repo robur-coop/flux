@@ -128,18 +128,15 @@ module Source = struct
     with_task ?halt ~size @@ fun q ->
     let buf = Buffer.create buffer_size in
     let flush () =
-      if Buffer.length buf > 0 then
+      if Buffer.length buf > 0 then (
         let s = Buffer.contents buf in
-        Buffer.clear buf;
-        Bqueue.put q s
+        Buffer.clear buf; Bqueue.put q s)
     in
     let out str off len =
       if Buffer.length buf = 0 && len >= buffer_size then
         Bqueue.put q (String.sub str off len)
-      else
-        Buffer.add_substring buf str off len;
-      if Buffer.length buf >= buffer_size then
-        flush ()
+      else Buffer.add_substring buf str off len;
+      if Buffer.length buf >= buffer_size then flush ()
     in
     let formatter = Format.make_formatter out flush in
     fn formatter;
@@ -659,14 +656,14 @@ module Stream = struct
              [Source.dispose] without re-init the given source [src]. *)
           let leftover = Source { src with init= Fun.const s } in
           (r', Some leftover)
-      | false -> begin
-          match src.pull s with
+      | false ->
+          begin match src.pull s with
           | Some (x, s') -> loop (snk.push r x) s'
           | None ->
               src.stop s;
               let r' = snk.stop r in
               (r', None)
-        end
+          end
     in
     let r0 = snk.init () in
     match snk.full r0 with
@@ -691,11 +688,13 @@ module Stream = struct
     let stream sink = into (flow sink) t in
     { stream }
 
-  let from ?(dispose_if_full= true) (Source src) =
+  let from ?(dispose_if_full = true) (Source src) =
     let stream (Sink k) =
       let rec go r s =
         let is_full = k.full r in
-        if is_full && dispose_if_full then begin src.stop s; k.stop r end
+        if is_full && dispose_if_full then begin
+          src.stop s; k.stop r
+        end
         else if is_full then k.stop r
         else
           match src.pull s with
