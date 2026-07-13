@@ -44,4 +44,12 @@
 
 (executable
  (name unzip)
+ (modules unzip mkdir_p)
  (libraries fluxt.unzip))
+
+(cram
+ (deps
+  mkdir_p.ml
+  error.exe
+  zip.exe
+  unzip.exe))
