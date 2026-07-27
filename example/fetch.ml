@@ -1,4 +1,3 @@
-let ( let@ ) finally fn = Fun.protect ~finally fn
 let ( >>= ) = Result.bind
 let uri = ref None
 let output = ref None
@@ -58,13 +57,12 @@ let set_length length (resp : Httpcats.response) =
   ignore (Miou.Computation.try_return length value)
 
 let () =
+  Mirage_crypto_rng_unix.use_default ();
   Miou_unix.run @@ fun () ->
   Arg.parse args anon usage;
   match (!uri, !output) with
   | None, _ | _, None -> Fmt.epr "%s\n%!" usage; exit 1
   | Some uri, Some output ->
-      let rng = Mirage_crypto_rng_miou_unix.(initialize (module Pfortuna)) in
-      let@ () = fun () -> Mirage_crypto_rng_miou_unix.kill rng in
       let length = Miou.Computation.create () in
       let from =
         Flux.Source.with_task ~parallel:true ~size:0x7ff @@ fun q ->

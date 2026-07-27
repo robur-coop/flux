@@ -130,13 +130,12 @@ let args =
   [ ("-n", Arg.Set_int n, "Print the first NUM results of the query search") ]
 
 let () =
+  Mirage_crypto_rng_unix.use_default ();
   Miou_unix.run ~domains:2 @@ fun () ->
   Arg.parse args anon usage;
   match !query with
   | None -> assert false
   | Some query ->
-      let rng = Mirage_crypto_rng_miou_unix.(initialize (module Pfortuna)) in
-      let@ () = fun () -> Mirage_crypto_rng_miou_unix.kill rng in
       let from = from_uri "https://opam.ocaml.org/index.tar.gz" in
       let via =
         let open Flux.Flow in

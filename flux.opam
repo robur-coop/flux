@@ -15,13 +15,13 @@ build: [ "dune" "build" "-p" name "-j" jobs ]
 run-test: [ "dune" "runtest" "-p" name "-j" jobs ]
 
 depends: [
-  "ocaml"                       {>= "5.0.0"}
-  "dune"                        {>= "3.20.0"}
-  "miou"                        {>= "0.5.0"}
-  "ocamlformat"                 {with-dev-setup & = "0.27.0"}
-  "httpcats"                    {with-dev-setup}
-  "mirage-crypto-rng-miou-unix" {with-dev-setup}
-  "alcotest"                    {with-test}
+  "ocaml"             {>= "5.0.0"}
+  "dune"              {>= "3.20.0"}
+  "miou"              {>= "0.5.0"}
+  "ocamlformat"       {with-dev-setup & = "0.27.0"}
+  "httpcats"          {with-dev-setup}
+  "mirage-crypto-rng" {with-dev-setup}
+  "alcotest"          {with-test}
 ]
 x-maintenance-intent: [ "(latest)" ]
 available: os-family != "windows"
