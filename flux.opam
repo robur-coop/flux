@@ -20,7 +20,7 @@ depends: [
   "miou"              {>= "0.5.0"}
   "ocamlformat"       {with-dev-setup & = "0.27.0"}
   "httpcats"          {with-dev-setup}
-  "mirage-crypto-rng" {with-dev-setup}
+  "mirage-crypto-rng" {with-dev-setup & >= "1.2.0"}
   "alcotest"          {with-test}
 ]
 x-maintenance-intent: [ "(latest)" ]
