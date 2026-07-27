@@ -36,7 +36,7 @@
 
 (executable
  (name fetch)
- (libraries httpcats mirage-crypto-rng-miou-unix fmt miou.unix progress flux))
+ (libraries httpcats mirage-crypto-rng.unix fmt miou.unix progress flux))
 
 (executable
  (name zip)
