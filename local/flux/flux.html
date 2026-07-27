@@ -200,13 +200,12 @@ let args =
   [ (&quot;-o&quot;, Arg.String (fun str -&gt; output := Some str), &quot;The output file&quot;) ]
 
 let () =
+  Mirage_crypto_rng_unix.use_default ();
   Miou_unix.run @@ fun () -&gt;
   Arg.parse args anon usage;
   match (!uri, !output) with
   | None, _ | _, None -&gt; Fmt.epr &quot;%s\n%!&quot; usage; exit 1
   | Some uri, Some output -&gt;
-      let rng = Mirage_crypto_rng_miou_unix.(initialize (module Pfortuna)) in
-      let@ () = fun () -&gt; Mirage_crypto_rng_miou_unix.kill rng in
       let from =
         Flux.Source.with_task ~size:0x7ff @@ fun q -&gt;
         let fn _ _ resp () str =
