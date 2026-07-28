@@ -518,6 +518,16 @@ module Flow = struct
     in
     { flow }
 
+  let tee init fn =
+    let flow (Sink k) =
+      let init () = (init, k.init ())
+      and push (v, r) x = (fn x v, k.push r x)
+      and full (_, a) = k.full a
+      and stop (_, a) = k.stop a in
+      Sink { init; push; full; stop }
+    in
+    { flow }
+
   let bstr ~len =
     let open Bigarray in
     let flow (Sink k) =
