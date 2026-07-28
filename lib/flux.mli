@@ -383,6 +383,14 @@ module Flow : sig
   val tap : ('a -> unit) -> ('a, 'a) flow
   (** A flow with all elements passed through an effectful function. *)
 
+  val tee : 'x -> ('a -> 'x -> 'x) -> ('a, 'a) flow
+  (** A flow with all elements passed through an effectful function with an
+      {i accumulator}. There is an example:
+
+      {[
+      let byte_counter = Flux.Flow.tee 0 (fun x acc -> acc + String.length x)
+      ]} *)
+
   val take : int -> ('a, 'a) flow
   (** Take first [n] elements from the source and discard the rest. *)
 
