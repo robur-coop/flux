@@ -48,4 +48,5 @@
  (libraries fluxt.unzip))
 
 (cram
+ (package fluxt)
  (deps mkdir_p.ml error.exe zip.exe unzip.exe))

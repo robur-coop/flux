@@ -1,3 +1,12 @@
+## v0.0.1~beta6 (2026-07-28)
+
+- Update `fluxt.tar` with `tar.3.5.0` (#19, @dinosaure)
+- Be able to decide the size of the buffer for `Flux_angstrom` (#20, @dinosaure)
+- Add `Flux_unzip` (`fluxt.unzip`) (#22, @dinosaure)
+- Fix a `assert false` on `Flux_de` (#22, spotted by @voodoos, fixed by @dinosaure)
+- Use `Mirage_crypto_rng_unix.use_default` (#23, @dinosaure, @hannesm)
+- Add `Flux.Flow.tee` (#24, @theAlexes, @dinosaure)
+
 ## v0.0.1~beta5 (2026-04-21)
 
 - Fix `Flux.Source.with_buffered_formatter` (@reynir, #16)
