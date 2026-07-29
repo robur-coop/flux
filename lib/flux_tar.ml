@@ -22,7 +22,7 @@ module Buf = struct
 
   let extend t more =
     assert (t.pos = 0);
-    let len = ref t.len in
+    let len = ref (Bytes.length t.buf) in
     while t.len + more > !len do
       len := 2 * !len
     done;
