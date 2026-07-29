@@ -60,11 +60,11 @@ let untar =
   let flow (Sink k) =
     let rec unfold acc buf = function
       | Ok (tar, Some (`Read req), _)
-        when Int64.of_int max_int < req && Buf.max buf >= Int64.to_int req ->
+        when req <= Int64.of_int max_int && Buf.max buf >= Int64.to_int req ->
           let data = Result.get_ok (Buf.get buf (Int64.to_int req)) in
           unfold acc buf (Tar.decode tar data)
       | Ok (tar, Some (`Skip rem), _)
-        when Int64.of_int max_int < rem && Buf.max buf >= Int64.to_int rem ->
+        when rem <= Int64.of_int max_int && Buf.max buf >= Int64.to_int rem ->
           Buf.skip buf (Int64.to_int rem);
           unfold acc buf (Ok (tar, None, None))
       | Ok (tar, Some (`Header hdr), _) when is_enough buf hdr ->
@@ -82,11 +82,11 @@ let untar =
     in
     let rec finalise acc buf = function
       | Ok (tar, Some (`Read req), _)
-        when Int64.of_int max_int < req && Buf.max buf >= Int64.to_int req ->
+        when req <= Int64.of_int max_int && Buf.max buf >= Int64.to_int req ->
           let data = Result.get_ok (Buf.get buf (Int64.to_int req)) in
           finalise acc buf (Tar.decode tar data)
       | Ok (tar, Some (`Skip rem), _)
-        when Int64.of_int max_int < rem && Buf.max buf >= Int64.to_int rem ->
+        when rem <= Int64.of_int max_int && Buf.max buf >= Int64.to_int rem ->
           Buf.skip buf (Int64.to_int rem);
           finalise acc buf (Ok (tar, None, None))
       | Ok (tar, Some (`Header hdr), _) when is_enough buf hdr ->
