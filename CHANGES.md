@@ -1,3 +1,7 @@
+## v0.0.1~beta7 (2026-07-30)
+
+- Fix `Flux_tar` (@dinosaure, @hannesm, #26)
+
 ## v0.0.1~beta6 (2026-07-28)
 
 - Update `fluxt.tar` with `tar.3.5.0` (#19, @dinosaure)
