@@ -255,7 +255,12 @@ val close : ('a, 'r) t -> unit
 (** [close q] closes the given bounded-queue [q]. All subsequent {!val:put}
     calls will raise an exception. If the producer has any pending elements,
     consumer will have an opportunity to {!val:get} them before receiving
-    [None]. [close q] does nothing for an infinite queue. *)
+    [None]. [close q] does nothing for an infinite queue.
+
+    [close] wakes up all the tasks which wait into {!val:put} or {!val:get},
+    from any domain. It does not take the lock of [q] and does not perform any
+    effect: it can be used into a [finally] (e.g. the one of
+    {!val:Miou.protect}), even when the current task is cancelled. *)
 
 val halt : ('a, 'r) t -> unit
 (** [halt q] halts the given bounded-queue [q]. All subsequent {!val:put} calls
@@ -263,7 +268,7 @@ val halt : ('a, 'r) t -> unit
     be {b discarded} if the given [q] is a {!type:with_close_and_halt}
     bounded-queue. [halt q] has the same effect than {!val:close} for a
     {!type:with_close} bounded-queue. [halt q] does nothing for an infinite
-    queue. *)
+    queue. Like {!val:close}, [halt] does not perform any effect. *)
 
 val iter : ('a -> unit) -> ('a, 'r) t -> unit
 (** [iter fn q] applies fn in turn to all elements of [q], from the least
