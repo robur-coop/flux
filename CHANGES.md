@@ -1,3 +1,7 @@
+## v0.0.1~beta8 (2026-09-21)
+
+- Our `Flux.Bqueue.close` is atomic (in the point of view of Miou) (@dinosaure, #28, #29)
+
 ## v0.0.1~beta7 (2026-07-30)
 
 - Fix `Flux_tar` (@dinosaure, @hannesm, #26)
